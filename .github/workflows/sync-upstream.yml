@@ -31,6 +31,7 @@ jobs:
         id: snapshot
         run: |
           node replica/sync-upstream.mjs
+          node replica/apply-patches.mjs
           node --input-type=module <<'JS'
           import { execFileSync } from 'node:child_process';
           import { readFileSync, appendFileSync } from 'node:fs';

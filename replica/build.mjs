@@ -1,9 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { applyPatches } from "./apply-patches.mjs";
 
 const config = fileURLToPath(new URL("./vite.config.mjs", import.meta.url));
 const root = fileURLToPath(new URL("../", import.meta.url));
+await applyPatches();
 const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", [
   "--prefix", "web", "run", "build", "--", "--config", config,
 ], { cwd: root, stdio: "inherit", shell: false });

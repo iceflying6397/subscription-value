@@ -21,9 +21,20 @@ export interface Box {
   height: number;
 }
 export interface Tick {
+  id: string;
   pos: number;
   label: string;
   major?: boolean;
+}
+
+/** Keep log prices representable and score steps larger than rounding error. */
+export function validView(v: View): boolean {
+  if (![v.xl, v.xr, v.yb, v.yt].every(Number.isFinite)) return false;
+  const spanX = v.xl - v.xr;
+  const spanY = v.yt - v.yb;
+  const scoreResolution = Math.max(Math.abs(v.yb), Math.abs(v.yt)) * Number.EPSILON * 32;
+  return v.xr >= -300 && v.xl <= 300 && spanX > 1e-4 && spanX < 40 &&
+    Number.isFinite(spanY) && spanY > Math.max(1e-6, scoreResolution);
 }
 
 export function makeBox(
@@ -130,8 +141,11 @@ export function boxToView(
   };
 }
 
-/** "$0.0005", "$0.01", "$2": plain decimals, never exponent notation. */
+/** Ordinary prices stay decimal; extreme prices stay short and never round to $0. */
 export function formatTickPrice(value: number): string {
+  if (!(value > 0) || !Number.isFinite(value)) return value === 0 ? "$0" : "—";
+  if (value < 1e-6 || value >= 1e6)
+    return "$" + value.toExponential(2).replace(/\.?0+e/, "e").replace("e+", "e");
   if (value >= 1) return "$" + Number(value.toPrecision(3)).toLocaleString("en-US");
   const digits = Math.min(12, Math.max(0, -Math.floor(Math.log10(value)) + 2));
   return "$" + value.toFixed(digits).replace(/\.?0+$/, "");
@@ -149,10 +163,14 @@ export function priceTicks(
   b: Box,
   minGap = 62,
   cheapestShown = -Infinity,
+  labelWidth: (label: string) => number = (label) => label.length * 7,
 ): Tick[] {
-  const lo = Math.min(v.xl, v.xr);
-  const hi = Math.max(v.xl, v.xr);
-  const perDecade = b.width / Math.max(hi - lo, 1e-9);
+  const span = Math.abs(v.xl - v.xr);
+  if (![v.xl, v.xr, span, b.width, minGap].every(Number.isFinite) ||
+      !(span > 0 && b.width > 0 && minGap > 0) || Number.isNaN(cheapestShown)) return [];
+  const lo = Math.max(-300, Math.min(v.xl, v.xr));
+  const hi = Math.min(300, Math.max(v.xl, v.xr));
+  const perDecade = b.width / span;
   const build = (m: number[], step = 1) => {
     const out: Tick[] = [];
     for (let d = Math.floor(lo) - 1; d <= Math.ceil(hi); d++) {
@@ -162,6 +180,7 @@ export function priceTicks(
         const lv = Math.log10(value);
         if (lv < lo || lv > hi || lv < cheapestShown) continue;
         out.push({
+          id: `price:${d}:${k}`,
           pos: xPixel(v, b, value),
           label: formatTickPrice(value),
           major: k === 1,
@@ -181,10 +200,19 @@ export function priceTicks(
     const step = Math.ceil(minGap / perDecade);
     best = build([1], step);
   }
-  return best;
+  // Centre-to-centre spacing alone is insufficient for long price labels.
+  const visible: Tick[] = [];
+  for (const tick of best) {
+    const previous = visible.at(-1);
+    const width = (label: string) => Math.max(labelWidth(label), label.length * 7);
+    const gap = previous ? Math.max(minGap, (width(previous.label) + width(tick.label)) / 2 + 10) : 0;
+    if (!previous || tick.pos - previous.pos >= gap - 1e-6) visible.push(tick);
+  }
+  return visible;
 }
 
 export function niceStep(span: number, count: number): number {
+  if (!(span > 0) || !Number.isFinite(span) || !Number.isFinite(count)) return 0;
   const raw = span / Math.max(count, 1);
   const mag = 10 ** Math.floor(Math.log10(raw));
   const norm = raw / mag;
@@ -193,8 +221,10 @@ export function niceStep(span: number, count: number): number {
 }
 
 export function scoreTicks(v: View, b: Box, lang = "en"): Tick[] {
+  if (![v.yb, v.yt, b.height].every(Number.isFinite) || !(v.yt > v.yb && b.height > 0)) return [];
   const count = Math.max(2, Math.round(b.height / 64));
   const step = niceStep(v.yt - v.yb, count);
+  if (!(step > 0) || !Number.isFinite(step)) return [];
   // Smallest precision that prints the step exactly (2.5 → 1, 0.002 → 3,
   // 5 → 0); coarser would collapse distinct ticks into duplicate labels.
   let digits = 0;
@@ -207,8 +237,19 @@ export function scoreTicks(v: View, b: Box, lang = "en"): Tick[] {
     maximumFractionDigits: digits,
   });
   const out: Tick[] = [];
-  for (let s = Math.ceil(v.yb / step) * step; s <= v.yt + 1e-9; s += step)
-    out.push({ pos: yPixel(v, b, s), label: fmt.format(Math.abs(s) < 1e-9 ? 0 : s) });
+  const first = Math.ceil(v.yb / step);
+  const last = Math.floor(v.yt / step + 1e-9);
+  if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) return [];
+  // Integer indices avoid a non-progressing s += step loop at large offsets.
+  const length = Math.min(count + 2, 1000, Math.max(0, last - first + 1));
+  let previousValue = -Infinity;
+  for (let i = 0; i < length; i++) {
+    const s = (first + i) * step;
+    const label = fmt.format(Math.abs(s) < 1e-9 ? 0 : s);
+    if (!Number.isFinite(s) || s <= previousValue || label === out.at(-1)?.label) continue;
+    out.push({ id: `score:${step}:${first + i}`, pos: yPixel(v, b, s), label });
+    previousValue = s;
+  }
   return out;
 }
 

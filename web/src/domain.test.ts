@@ -70,6 +70,7 @@ import {
   priceTicks,
   scoreTicks,
   toPixel,
+  validView,
   zoomAt,
 } from "./chartScene";
 import { channelColors, dotColors, luminance } from "./palette";
@@ -940,6 +941,75 @@ test("Price ticks use plain decimals, stay in view, keep their spacing and skip 
   narrow.forEach((t, i) => i && assert.ok(t.pos - narrow[i - 1].pos >= 54 - 1e-6));
   const y = scoreTicks({ xl: 1, xr: 0, yb: 1403, yt: 1517 }, box, "en");
   assert.ok(y.length >= 3 && y.every((t) => /^1,[45]\d\d$/.test(t.label)));
+});
+test("Extreme price ticks retain unique identities, nonzero prices and readable spacing", () => {
+  for (const value of [1e-300, 2e-20, 5e-13, 1e6, 5e20, 1e300]) {
+    const label = formatTickPrice(value);
+    assert.notEqual(label, "$0", "a positive price must never become a zero label");
+    assert.ok(label.length <= 12, `extreme price label is too long: ${label}`);
+    assert.ok(Math.abs(Number(label.slice(1)) / value - 1) < 1e-12);
+  }
+  // Ten zoom-outs from the real chart reach this window; the old formatter
+  // generated duplicate $0 keys here and React retained stale SVG children.
+  const view = { xl: 16.9, xr: -19.9, yb: -100, yt: 200 };
+  assert.ok(validView(view));
+  for (const width of [320, 800, 2000]) {
+    const box = makeBox(width, 500, { l: 60, r: 20, t: 20, b: 60 });
+    const ticks = priceTicks(view, box, 64);
+    assert.ok(ticks.length > 1);
+    assert.equal(new Set(ticks.map(t => t.id)).size, ticks.length);
+    assert.equal(new Set(ticks.map(t => t.label)).size, ticks.length);
+    for (const [i, tick] of ticks.entries()) {
+      assert.notEqual(tick.label, "$0");
+      assert.ok(Number.isFinite(tick.pos) && tick.pos >= box.left && tick.pos <= box.right);
+      if (i) {
+        const previous = ticks[i - 1];
+        const labelGap = (previous.label.length + tick.label.length) * 7 / 2 + 10;
+        assert.ok(tick.pos - previous.pos >= Math.max(64, labelGap) - 1e-6);
+      }
+    }
+  }
+});
+test("Price tick spacing accounts for the measured label width", () => {
+  const box = makeBox(1000, 500, { l: 60, r: 20, t: 20, b: 60 });
+  const ticks = priceTicks({ xl: 1, xr: -4, yb: 0, yt: 100 }, box, 64, -Infinity, () => 200);
+  assert.ok(ticks.length > 1);
+  ticks.forEach((tick, i) => i && assert.ok(tick.pos - ticks[i - 1].pos >= 210 - 1e-6));
+});
+test("Chart view and ticks reject nonfinite and unrepresentable pan or zoom windows", () => {
+  const box = makeBox(1000, 500, { l: 60, r: 20, t: 20, b: 60 });
+  const normal = { xl: 1, xr: -4, yb: 20, yt: 70 };
+  assert.ok(validView(normal));
+  for (const value of [NaN, Infinity, -Infinity]) {
+    for (const key of ["xl", "xr", "yb", "yt"] as const)
+      assert.equal(validView({ ...normal, [key]: value }), false);
+  }
+  const farPrice = { ...normal, xl: 1e17 + 32, xr: 1e17 };
+  const farScore = { ...normal, yb: 1e20, yt: 1e20 + 16384 };
+  assert.equal(validView(farPrice), false);
+  assert.equal(validView(farScore), false);
+  assert.deepEqual(priceTicks(farPrice, box), []);
+  assert.deepEqual(scoreTicks(farScore, box), []);
+  assert.deepEqual(priceTicks({ ...normal, xl: Infinity }, box), []);
+  assert.deepEqual(priceTicks({ ...normal, xl: 1e308, xr: -1e308 }, box), []);
+  assert.deepEqual(scoreTicks({ ...normal, yt: Infinity }, box), []);
+  assert.deepEqual(priceTicks({ ...normal, xr: normal.xl }, box), []);
+  assert.deepEqual(scoreTicks({ ...normal, yt: normal.yb }, box), []);
+});
+test("Price ticks remain bounded and distinct through repeated zoom cycles", () => {
+  const box = makeBox(1000, 500, { l: 60, r: 20, t: 20, b: 60 });
+  let view = { xl: 0.46, xr: -3.50, yb: 10, yt: 75 };
+  for (let cycle = 0; cycle < 10; cycle++) {
+    for (const factor of [...Array(12).fill(1.25), ...Array(12).fill(0.8)]) {
+      const next = zoomAt(view, box, 0.6 * box.width + box.left, 0.4 * box.height + box.top, factor);
+      if (validView(next)) view = next;
+      const ticks = priceTicks(view, box, 64);
+      assert.ok(ticks.length <= Math.ceil(box.width / 64) + 1);
+      assert.equal(new Set(ticks.map(t => t.id)).size, ticks.length);
+      assert.equal(new Set(ticks.map(t => t.label)).size, ticks.length);
+      assert.ok(ticks.every(t => Number.isFinite(t.pos) && t.label !== "$0"));
+    }
+  }
 });
 test("Score ticks stay unique and exact at every zoom depth, with decimals derived from the step", () => {
   const box = makeBox(800, 560, { l: 60, r: 20, t: 20, b: 60 }); // plot height 480

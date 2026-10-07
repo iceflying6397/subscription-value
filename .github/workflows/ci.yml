@@ -27,5 +27,6 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm --prefix web ci --ignore-scripts
+      - run: node replica/apply-patches.mjs
       - run: npm --prefix web test
       - run: node replica/build.mjs

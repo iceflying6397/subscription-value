@@ -71,6 +71,7 @@ import {
   yPixel,
   zeroFence,
   zoomAt,
+  validView,
 } from "./chartScene";
 import { chartColors, dotColors, readableInk, type ChartColors } from "./palette";
 import ChartSearch from "./ChartSearch";
@@ -135,6 +136,7 @@ function ChartScene(p: SceneProps) {
     box,
     p.mobile ? 54 : 64,
     fence !== null ? Math.log10(fence) : -Infinity,
+    (label) => textWidth(label, p.mobile ? 10.5 : 11.5),
   );
   const yTicks = scoreTicks(view, box, p.lang);
   const line = p.showFrontier && p.front.length
@@ -184,12 +186,12 @@ function ChartScene(p: SceneProps) {
       )}
       <g>
         {/* grid */}
-        {yTicks.map((t, i) => (
-          <line key={`gy${i}`} x1={box.left} x2={box.right} y1={t.pos} y2={t.pos} stroke={c.grid} />
+        {yTicks.map((t) => (
+          <line key={`gy${t.id}`} x1={box.left} x2={box.right} y1={t.pos} y2={t.pos} stroke={c.grid} />
         ))}
         {xTicks.map((t) => (
           <line
-            key={`gx${t.label}`}
+            key={`gx${t.id}`}
             x1={t.pos}
             x2={t.pos}
             y1={box.top}
@@ -210,15 +212,15 @@ function ChartScene(p: SceneProps) {
         )}
         {/* tick labels */}
         <g fontSize={p.mobile ? 10.5 : 11.5} fill={c.text} style={{ fontVariantNumeric: "tabular-nums" }}>
-          {yTicks.map((t, i) =>
+          {yTicks.map((t) =>
             t.pos >= box.top - 1 && t.pos <= box.bottom + 1 ? (
-              <text key={`ty${i}`} x={box.left - 10} y={t.pos} textAnchor="end" dominantBaseline="central">
+              <text key={`ty${t.id}`} x={box.left - 10} y={t.pos} textAnchor="end" dominantBaseline="central">
                 {t.label}
               </text>
             ) : null,
           )}
           {xTicks.map((t) => (
-            <text key={`tx${t.label}`} x={t.pos} y={box.bottom + 18} textAnchor="middle">
+            <text key={`tx${t.id}`} x={t.pos} y={box.bottom + 18} textAnchor="middle">
               {t.label}
             </text>
           ))}
@@ -682,10 +684,7 @@ export default function Chart({
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
   const setViewSafe = (next: View) => {
-    // Refuse degenerate windows (a runaway zoom would lose all precision).
-    const spanX = next.xl - next.xr;
-    const spanY = next.yt - next.yb;
-    if (!(spanX > 1e-4 && spanX < 40 && spanY > 1e-6 && Number.isFinite(spanY))) return;
+    if (!validView(next)) return;
     setView(next);
   };
   const reset = () => {

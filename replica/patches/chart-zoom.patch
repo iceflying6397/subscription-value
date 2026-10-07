@@ -1,0 +1,275 @@
+diff --git a/web/src/Chart.tsx b/web/src/Chart.tsx
+index 76b3124..60472b5 100644
+--- a/web/src/Chart.tsx
++++ b/web/src/Chart.tsx
+@@ -71,6 +71,7 @@ import {
+   yPixel,
+   zeroFence,
+   zoomAt,
++  validView,
+ } from "./chartScene";
+ import { chartColors, dotColors, readableInk, type ChartColors } from "./palette";
+ import ChartSearch from "./ChartSearch";
+@@ -135,6 +136,7 @@ function ChartScene(p: SceneProps) {
+     box,
+     p.mobile ? 54 : 64,
+     fence !== null ? Math.log10(fence) : -Infinity,
++    (label) => textWidth(label, p.mobile ? 10.5 : 11.5),
+   );
+   const yTicks = scoreTicks(view, box, p.lang);
+   const line = p.showFrontier && p.front.length
+@@ -184,12 +186,12 @@ function ChartScene(p: SceneProps) {
+       )}
+       <g>
+         {/* grid */}
+-        {yTicks.map((t, i) => (
+-          <line key={`gy${i}`} x1={box.left} x2={box.right} y1={t.pos} y2={t.pos} stroke={c.grid} />
++        {yTicks.map((t) => (
++          <line key={`gy${t.id}`} x1={box.left} x2={box.right} y1={t.pos} y2={t.pos} stroke={c.grid} />
+         ))}
+         {xTicks.map((t) => (
+           <line
+-            key={`gx${t.label}`}
++            key={`gx${t.id}`}
+             x1={t.pos}
+             x2={t.pos}
+             y1={box.top}
+@@ -210,15 +212,15 @@ function ChartScene(p: SceneProps) {
+         )}
+         {/* tick labels */}
+         <g fontSize={p.mobile ? 10.5 : 11.5} fill={c.text} style={{ fontVariantNumeric: "tabular-nums" }}>
+-          {yTicks.map((t, i) =>
++          {yTicks.map((t) =>
+             t.pos >= box.top - 1 && t.pos <= box.bottom + 1 ? (
+-              <text key={`ty${i}`} x={box.left - 10} y={t.pos} textAnchor="end" dominantBaseline="central">
++              <text key={`ty${t.id}`} x={box.left - 10} y={t.pos} textAnchor="end" dominantBaseline="central">
+                 {t.label}
+               </text>
+             ) : null,
+           )}
+           {xTicks.map((t) => (
+-            <text key={`tx${t.label}`} x={t.pos} y={box.bottom + 18} textAnchor="middle">
++            <text key={`tx${t.id}`} x={t.pos} y={box.bottom + 18} textAnchor="middle">
+               {t.label}
+             </text>
+           ))}
+@@ -682,10 +684,7 @@ export default function Chart({
+     return { x: e.clientX - r.left, y: e.clientY - r.top };
+   };
+   const setViewSafe = (next: View) => {
+-    // Refuse degenerate windows (a runaway zoom would lose all precision).
+-    const spanX = next.xl - next.xr;
+-    const spanY = next.yt - next.yb;
+-    if (!(spanX > 1e-4 && spanX < 40 && spanY > 1e-6 && Number.isFinite(spanY))) return;
++    if (!validView(next)) return;
+     setView(next);
+   };
+   const reset = () => {
+diff --git a/web/src/chartScene.ts b/web/src/chartScene.ts
+index e1c8457..7d06399 100644
+--- a/web/src/chartScene.ts
++++ b/web/src/chartScene.ts
+@@ -21,11 +21,22 @@ export interface Box {
+   height: number;
+ }
+ export interface Tick {
++  id: string;
+   pos: number;
+   label: string;
+   major?: boolean;
+ }
+ 
++/** Keep log prices representable and score steps larger than rounding error. */
++export function validView(v: View): boolean {
++  if (![v.xl, v.xr, v.yb, v.yt].every(Number.isFinite)) return false;
++  const spanX = v.xl - v.xr;
++  const spanY = v.yt - v.yb;
++  const scoreResolution = Math.max(Math.abs(v.yb), Math.abs(v.yt)) * Number.EPSILON * 32;
++  return v.xr >= -300 && v.xl <= 300 && spanX > 1e-4 && spanX < 40 &&
++    Number.isFinite(spanY) && spanY > Math.max(1e-6, scoreResolution);
++}
++
+ export function makeBox(
+   width: number,
+   height: number,
+@@ -130,8 +141,11 @@ export function boxToView(
+   };
+ }
+ 
+-/** "$0.0005", "$0.01", "$2": plain decimals, never exponent notation. */
++/** Ordinary prices stay decimal; extreme prices stay short and never round to $0. */
+ export function formatTickPrice(value: number): string {
++  if (!(value > 0) || !Number.isFinite(value)) return value === 0 ? "$0" : "—";
++  if (value < 1e-6 || value >= 1e6)
++    return "$" + value.toExponential(2).replace(/\.?0+e/, "e").replace("e+", "e");
+   if (value >= 1) return "$" + Number(value.toPrecision(3)).toLocaleString("en-US");
+   const digits = Math.min(12, Math.max(0, -Math.floor(Math.log10(value)) + 2));
+   return "$" + value.toFixed(digits).replace(/\.?0+$/, "");
+@@ -149,10 +163,14 @@ export function priceTicks(
+   b: Box,
+   minGap = 62,
+   cheapestShown = -Infinity,
++  labelWidth: (label: string) => number = (label) => label.length * 7,
+ ): Tick[] {
+-  const lo = Math.min(v.xl, v.xr);
+-  const hi = Math.max(v.xl, v.xr);
+-  const perDecade = b.width / Math.max(hi - lo, 1e-9);
++  const span = Math.abs(v.xl - v.xr);
++  if (![v.xl, v.xr, span, b.width, minGap].every(Number.isFinite) ||
++      !(span > 0 && b.width > 0 && minGap > 0) || Number.isNaN(cheapestShown)) return [];
++  const lo = Math.max(-300, Math.min(v.xl, v.xr));
++  const hi = Math.min(300, Math.max(v.xl, v.xr));
++  const perDecade = b.width / span;
+   const build = (m: number[], step = 1) => {
+     const out: Tick[] = [];
+     for (let d = Math.floor(lo) - 1; d <= Math.ceil(hi); d++) {
+@@ -162,6 +180,7 @@ export function priceTicks(
+         const lv = Math.log10(value);
+         if (lv < lo || lv > hi || lv < cheapestShown) continue;
+         out.push({
++          id: `price:${d}:${k}`,
+           pos: xPixel(v, b, value),
+           label: formatTickPrice(value),
+           major: k === 1,
+@@ -181,10 +200,19 @@ export function priceTicks(
+     const step = Math.ceil(minGap / perDecade);
+     best = build([1], step);
+   }
+-  return best;
++  // Centre-to-centre spacing alone is insufficient for long price labels.
++  const visible: Tick[] = [];
++  for (const tick of best) {
++    const previous = visible.at(-1);
++    const width = (label: string) => Math.max(labelWidth(label), label.length * 7);
++    const gap = previous ? Math.max(minGap, (width(previous.label) + width(tick.label)) / 2 + 10) : 0;
++    if (!previous || tick.pos - previous.pos >= gap - 1e-6) visible.push(tick);
++  }
++  return visible;
+ }
+ 
+ export function niceStep(span: number, count: number): number {
++  if (!(span > 0) || !Number.isFinite(span) || !Number.isFinite(count)) return 0;
+   const raw = span / Math.max(count, 1);
+   const mag = 10 ** Math.floor(Math.log10(raw));
+   const norm = raw / mag;
+@@ -193,8 +221,10 @@ export function niceStep(span: number, count: number): number {
+ }
+ 
+ export function scoreTicks(v: View, b: Box, lang = "en"): Tick[] {
++  if (![v.yb, v.yt, b.height].every(Number.isFinite) || !(v.yt > v.yb && b.height > 0)) return [];
+   const count = Math.max(2, Math.round(b.height / 64));
+   const step = niceStep(v.yt - v.yb, count);
++  if (!(step > 0) || !Number.isFinite(step)) return [];
+   // Smallest precision that prints the step exactly (2.5 → 1, 0.002 → 3,
+   // 5 → 0); coarser would collapse distinct ticks into duplicate labels.
+   let digits = 0;
+@@ -207,8 +237,19 @@ export function scoreTicks(v: View, b: Box, lang = "en"): Tick[] {
+     maximumFractionDigits: digits,
+   });
+   const out: Tick[] = [];
+-  for (let s = Math.ceil(v.yb / step) * step; s <= v.yt + 1e-9; s += step)
+-    out.push({ pos: yPixel(v, b, s), label: fmt.format(Math.abs(s) < 1e-9 ? 0 : s) });
++  const first = Math.ceil(v.yb / step);
++  const last = Math.floor(v.yt / step + 1e-9);
++  if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) return [];
++  // Integer indices avoid a non-progressing s += step loop at large offsets.
++  const length = Math.min(count + 2, 1000, Math.max(0, last - first + 1));
++  let previousValue = -Infinity;
++  for (let i = 0; i < length; i++) {
++    const s = (first + i) * step;
++    const label = fmt.format(Math.abs(s) < 1e-9 ? 0 : s);
++    if (!Number.isFinite(s) || s <= previousValue || label === out.at(-1)?.label) continue;
++    out.push({ id: `score:${step}:${first + i}`, pos: yPixel(v, b, s), label });
++    previousValue = s;
++  }
+   return out;
+ }
+ 
+diff --git a/web/src/domain.test.ts b/web/src/domain.test.ts
+index db72f9f..0790b06 100644
+--- a/web/src/domain.test.ts
++++ b/web/src/domain.test.ts
+@@ -70,6 +70,7 @@ import {
+   priceTicks,
+   scoreTicks,
+   toPixel,
++  validView,
+   zoomAt,
+ } from "./chartScene";
+ import { channelColors, dotColors, luminance } from "./palette";
+@@ -941,6 +942,75 @@ test("Price ticks use plain decimals, stay in view, keep their spacing and skip
+   const y = scoreTicks({ xl: 1, xr: 0, yb: 1403, yt: 1517 }, box, "en");
+   assert.ok(y.length >= 3 && y.every((t) => /^1,[45]\d\d$/.test(t.label)));
+ });
++test("Extreme price ticks retain unique identities, nonzero prices and readable spacing", () => {
++  for (const value of [1e-300, 2e-20, 5e-13, 1e6, 5e20, 1e300]) {
++    const label = formatTickPrice(value);
++    assert.notEqual(label, "$0", "a positive price must never become a zero label");
++    assert.ok(label.length <= 12, `extreme price label is too long: ${label}`);
++    assert.ok(Math.abs(Number(label.slice(1)) / value - 1) < 1e-12);
++  }
++  // Ten zoom-outs from the real chart reach this window; the old formatter
++  // generated duplicate $0 keys here and React retained stale SVG children.
++  const view = { xl: 16.9, xr: -19.9, yb: -100, yt: 200 };
++  assert.ok(validView(view));
++  for (const width of [320, 800, 2000]) {
++    const box = makeBox(width, 500, { l: 60, r: 20, t: 20, b: 60 });
++    const ticks = priceTicks(view, box, 64);
++    assert.ok(ticks.length > 1);
++    assert.equal(new Set(ticks.map(t => t.id)).size, ticks.length);
++    assert.equal(new Set(ticks.map(t => t.label)).size, ticks.length);
++    for (const [i, tick] of ticks.entries()) {
++      assert.notEqual(tick.label, "$0");
++      assert.ok(Number.isFinite(tick.pos) && tick.pos >= box.left && tick.pos <= box.right);
++      if (i) {
++        const previous = ticks[i - 1];
++        const labelGap = (previous.label.length + tick.label.length) * 7 / 2 + 10;
++        assert.ok(tick.pos - previous.pos >= Math.max(64, labelGap) - 1e-6);
++      }
++    }
++  }
++});
++test("Price tick spacing accounts for the measured label width", () => {
++  const box = makeBox(1000, 500, { l: 60, r: 20, t: 20, b: 60 });
++  const ticks = priceTicks({ xl: 1, xr: -4, yb: 0, yt: 100 }, box, 64, -Infinity, () => 200);
++  assert.ok(ticks.length > 1);
++  ticks.forEach((tick, i) => i && assert.ok(tick.pos - ticks[i - 1].pos >= 210 - 1e-6));
++});
++test("Chart view and ticks reject nonfinite and unrepresentable pan or zoom windows", () => {
++  const box = makeBox(1000, 500, { l: 60, r: 20, t: 20, b: 60 });
++  const normal = { xl: 1, xr: -4, yb: 20, yt: 70 };
++  assert.ok(validView(normal));
++  for (const value of [NaN, Infinity, -Infinity]) {
++    for (const key of ["xl", "xr", "yb", "yt"] as const)
++      assert.equal(validView({ ...normal, [key]: value }), false);
++  }
++  const farPrice = { ...normal, xl: 1e17 + 32, xr: 1e17 };
++  const farScore = { ...normal, yb: 1e20, yt: 1e20 + 16384 };
++  assert.equal(validView(farPrice), false);
++  assert.equal(validView(farScore), false);
++  assert.deepEqual(priceTicks(farPrice, box), []);
++  assert.deepEqual(scoreTicks(farScore, box), []);
++  assert.deepEqual(priceTicks({ ...normal, xl: Infinity }, box), []);
++  assert.deepEqual(priceTicks({ ...normal, xl: 1e308, xr: -1e308 }, box), []);
++  assert.deepEqual(scoreTicks({ ...normal, yt: Infinity }, box), []);
++  assert.deepEqual(priceTicks({ ...normal, xr: normal.xl }, box), []);
++  assert.deepEqual(scoreTicks({ ...normal, yt: normal.yb }, box), []);
++});
++test("Price ticks remain bounded and distinct through repeated zoom cycles", () => {
++  const box = makeBox(1000, 500, { l: 60, r: 20, t: 20, b: 60 });
++  let view = { xl: 0.46, xr: -3.50, yb: 10, yt: 75 };
++  for (let cycle = 0; cycle < 10; cycle++) {
++    for (const factor of [...Array(12).fill(1.25), ...Array(12).fill(0.8)]) {
++      const next = zoomAt(view, box, 0.6 * box.width + box.left, 0.4 * box.height + box.top, factor);
++      if (validView(next)) view = next;
++      const ticks = priceTicks(view, box, 64);
++      assert.ok(ticks.length <= Math.ceil(box.width / 64) + 1);
++      assert.equal(new Set(ticks.map(t => t.id)).size, ticks.length);
++      assert.equal(new Set(ticks.map(t => t.label)).size, ticks.length);
++      assert.ok(ticks.every(t => Number.isFinite(t.pos) && t.label !== "$0"));
++    }
++  }
++});
+ test("Score ticks stay unique and exact at every zoom depth, with decimals derived from the step", () => {
+   const box = makeBox(800, 560, { l: 60, r: 20, t: 20, b: 60 }); // plot height 480
+   for (const span of [40, 15, 1, 0.1, 0.01, 0.001, 1e-5]) {

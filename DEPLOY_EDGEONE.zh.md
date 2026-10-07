@@ -1,6 +1,6 @@
 # 部署到 EdgeOne Pages
 
-这个副本直接使用 [Real API Pricing](https://github.com/FeiZhuLulu/real-api-pricing) 的网页、计算逻辑和数据，保留原版布局、中英切换、图表、筛选、详情与下载功能。站名通过 `replica/` 中的构建封装调整，原网站源码保持上游版本。原软件许可证及第三方来源说明仍保留在 `LICENSE` 和 `SOURCES.md`。
+这个副本直接使用 [Real API Pricing](https://github.com/FeiZhuLulu/real-api-pricing) 的网页、计算逻辑和数据，保留原版布局、中英切换、图表、筛选、详情与下载功能。站名通过 `replica/` 中的构建封装调整，图表缩放问题的本地修复通过受保护的文本补丁维护。原软件许可证及第三方来源说明仍保留在 `LICENSE` 和 `SOURCES.md`。
 
 网站是静态站点，不需要数据库、服务器函数或模型 API 密钥。请先把整个项目上传到自己的 GitHub 仓库，再在 EdgeOne 中关联这个仓库。
 
@@ -37,8 +37,9 @@ GitHub Actions 中的 **Sync upstream website** 每小时第 17 分钟检查一�
 1. 获取上游最新提交，并固定到该提交的 SHA。
 2. 从 Git 跟踪的文件对象读取完整源码与数据快照。不会读取源目录的未提交文件，也不会执行上游 GitHub 工作流。
 3. 更新自己的副本；仅删除上一次同步清单中已有、而本次上游已删除的文件。
-4. 在只有读取权限的独立任务中运行网站依赖安装、`npm --prefix web test` 和 `node replica/build.mjs`。
-5. 全部通过后，由另一个任务提交并推送已验证的变更。EdgeOne 的 Git 集成收到生产分支新提交后构建并发布。
+4. 立即重新应用 `replica/patches/chart-zoom.patch`，然后判断最终源码是否发生变化。本地修复不会在自动同步时丢失。
+5. 在只有读取权限的独立任务中运行网站依赖安装、`npm --prefix web test` 和 `node replica/build.mjs`。
+6. 全部通过后，由另一个任务提交并推送已验证的变更。EdgeOne 的 Git 集成收到生产分支新提交后构建并发布。
 
 以下自有内容受到保护，不会被上游同步覆盖或删除：
 
@@ -47,13 +48,21 @@ GitHub Actions 中的 **Sync upstream website** 每小时第 17 分钟检查一�
 - `DEPLOY_EDGEONE.zh.md`、`edgeone.json`、`AGENTS.md`、`.agents/` 和 `.codex/`。
 - `.git/`，同步脚本不修改 Git 仓库内部数据。
 
-其余列入 `replica/upstream.json` 的文件由上游管理，包括网页源码、数据、文档及静态图。以后修改站名和其他副本配置，请放在 `replica/` 中；直接修改上游管理的文件会在后续同步时被替换。
+其余列入 `replica/upstream.json` 的文件由上游管理，包括网页源码、数据、文档及静态图。以后修改站名和其他副本配置，请放在 `replica/` 中。需要保留的源码修复也应记录在受保护补丁中；未记录的直接修改会在后续同步时被替换。
 
-如果上游新文件与不在清单中的本地文件冲突、出现符号链接/子模块、路径类型变化或构建不兼容，同步会失败并保留线上已有版本，不会强制发布。`replica/upstream.json` 记录最近一次已采用的上游提交和受管理文件清单。
+如果上游新文件与不在清单中的本地文件冲突、出现符号链接/子模块、路径类型变化、本地修复补丁冲突或构建不兼容，同步会失败并保留线上已有版本，不会强制发布。`replica/upstream.json` 记录最近一次已采用的上游提交和受管理文件清单。
 
 自动提交使用仓库内置的 `GITHUB_TOKEN`，不需要另外添加 GitHub 或 EdgeOne 密钥。构建任务只有读取权限，具有写入权限的提交任务不运行上游网站代码。若自己的分支保护规则禁止机器人直接推送，需要调整规则，或将流程改成通过拉取请求合并。
 
 GitHub 的内置令牌提交不会再触发另一个基于 `push` 的 GitHub Actions 流程，因此网站测试与构建已放在同步流程本身。EdgeOne 使用外部 Git 集成接收提交；第一次自动同步后，可在 EdgeOne 部署列表确认对应提交已发布。[GitHub 官方令牌行为](https://docs.github.com/en/actions/concepts/security/github_token)
+
+## 保留图表修复
+
+`replica/apply-patches.mjs` 检查并应用 `replica/patches/chart-zoom.patch`。这个补丁只允许修改 `web/src/Chart.tsx`、`web/src/chartScene.ts` 和 `web/src/domain.test.ts`，不能新增、删除、重命名文件，也不能包含二进制修改或经过符号链接。
+
+应用前先让 Git 检查文本上下文。上游改动文件中的无关位置时，仍可正常合并这份修复；如果补丁已完整应用，反向检查会识别并跳过，重复构建不会叠加修改。如果前向和反向检查都不通过，则明确报错并停止发布，需要复核上游变化后更新补丁，不会直接用旧文件覆盖新文件。
+
+普通 CI 在网站测试前应用补丁；自动同步在恢复上游原文后、判断是否有更新之前应用补丁。`node replica/build.mjs` 也会幂等检查补丁，确保 EdgeOne 直接构建时保留修复。修复后的源码与补丁一起保存在自己的仓库，后续自动同步只会提交通过测试和构建的最终版本。
 
 ## 手动检查与运行
 
@@ -65,10 +74,13 @@ GitHub 的内置令牌提交不会再触发另一个基于 `push` 的 GitHub Act
 node replica/sync-upstream.mjs --dry-run
 ```
 
+这一步只预览上游原始快照，不应用本地修复。结果可能包含图表修复文件恢复成上游原文的计划；正式同步后会重新应用补丁。
+
 实际同步并检查网站：
 
 ```sh
 node replica/sync-upstream.mjs
+node replica/apply-patches.mjs
 npm --prefix web ci --ignore-scripts
 npm --prefix web test
 node replica/build.mjs
