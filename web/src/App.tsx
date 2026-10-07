@@ -1,0 +1,1955 @@
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpRight,
+  ChartBar,
+  ChartScatter,
+  Check,
+  CheckSquare,
+  CaretDown,
+  Coins,
+  DownloadSimple,
+  FunnelSimple,
+  GithubLogo,
+  Info,
+  LinkSimple,
+  MagnifyingGlass,
+  Moon,
+  SlidersHorizontal,
+  Sun,
+  Table,
+  X,
+} from "@phosphor-icons/react";
+import { ThemeContext, type Theme } from "./theme";
+import Chart from "./Chart";
+import HeaderActions from "./HeaderActions";
+import { unpackData } from "./loadData";
+import Ranking from "./Ranking";
+import ResizeHandle from "./ResizeHandle";
+import { useIncremental } from "./useIncremental";
+import ProviderLogo, { BrandMarks } from "./ProviderLogo";
+import { feeBands } from "./domain";
+import type { ChartHandle } from "./Chart";
+import Modal from "./Modal";
+import type {
+  FilterKey,
+  Lang,
+  Point,
+  Row,
+  SiteData,
+  State,
+  View,
+} from "./types";
+import { dotColors, FALLBACK_COLOR } from "./palette";
+import {
+  accessLine,
+  allowance,
+  barAxis,
+  color,
+  colors,
+  csv,
+  dataDateLine,
+  defaultState,
+  displayPlan,
+  filterKeys,
+  groups,
+  manufacturer,
+  number,
+  options,
+  pareto,
+  price,
+  priceExact,
+  restore,
+  rowsFor,
+  safeUrl,
+  serialize,
+  tableRows,
+  variantLabel,
+  visiblePoints,
+  isUnmetered,
+  unmeteredNote,
+  workloadLine,
+  listPriceLine,
+  metricLabel,
+  effortLabel,
+  firstUrl,
+  mappingNoteLabel,
+} from "./domain";
+
+const REPO = "https://github.com/FeiZhuLulu/real-api-pricing";
+const boardLabels: Record<string, string> = {
+  arena_code: "Code Arena",
+  arena_agent_mode: "Agent Arena",
+  aa_intelligence_index: "AA Intelligence",
+  aa_coding_agent_index: "AA Coding Agent",
+  open_design_arena: "OpenDesign Arena",
+  terminal_bench_4: "Terminal-Bench 4.0",
+  aa_terminal_bench_4: "Terminal-Bench 4.0 (AA)",
+  deepswe_1_1: "DeepSWE v1.1",
+};
+const boardZh: Record<string, string> = {
+  arena_code: "Code Arena · 网页开发",
+  arena_agent_mode: "Agent Arena",
+  aa_intelligence_index: "AA 智力榜",
+  aa_coding_agent_index: "AA 编程 Agent",
+  open_design_arena: "OpenDesign 设计榜",
+  terminal_bench_4: "Terminal-Bench 4.0 终端榜",
+  aa_terminal_bench_4: "TB4（AA 实测）",
+  deepswe_1_1: "DeepSWE v1.1",
+};
+const filterLabels: Record<FilterKey, [string, string]> = {
+  vendors: ["Model developer", "模型厂商"],
+  channels: ["Access channel", "订阅渠道"],
+  plans: ["Plan", "套餐"],
+  billing: ["Billing", "计费方式"],
+  confidence: ["Quota confidence", "额度置信度"],
+  harness: ["Agent harness", "Agent 框架"],
+  effort: ["Reasoning effort", "推理强度"],
+  modes: ["Service mode", "服务模式"],
+};
+function localLanguage() {
+  try {
+    return localStorage.getItem("pricing-language");
+  } catch {
+    return null;
+  }
+}
+function saveLanguage(lang: Lang) {
+  try {
+    localStorage.setItem("pricing-language", lang);
+  } catch {
+    /* Storage is optional. */
+  }
+}
+function storedTheme(): Theme | null {
+  try {
+    const value = localStorage.getItem("pricing-theme");
+    return value === "dark" || value === "light" ? value : null;
+  } catch {
+    return null;
+  }
+}
+function localTheme(): Theme {
+  const stored = storedTheme();
+  if (stored) return stored;
+  return typeof matchMedia !== "undefined" &&
+    matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+function saveTheme(theme: Theme) {
+  try {
+    localStorage.setItem("pricing-theme", theme);
+  } catch {
+    /* Storage is optional. */
+  }
+}
+function downloadText(content: string, filename: string, mime: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function CheckBox({
+  checked,
+  mixed = false,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  mixed?: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = mixed;
+  }, [mixed]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      aria-label={label}
+    />
+  );
+}
+/** Channel legend clamped to one line; a toggle reveals the wrapped rest. */
+function OneLineLegend({
+  label,
+  signature,
+  zh,
+  trailing,
+  children,
+}: {
+  label: string;
+  signature: string;
+  zh: boolean;
+  trailing: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [hidden, setHidden] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const items = [...el.children] as HTMLElement[];
+      const top = items[0]?.offsetTop ?? 0;
+      setHidden(items.filter((item) => item.offsetTop > top + 4).length);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [signature]);
+  return (
+    <div className={open ? "legend-row is-open" : "legend-row"}>
+      <div ref={ref} className="legend" role="group" aria-label={label}>
+        {children}
+      </div>
+      {hidden > 0 && (
+        <button
+          className="legend-more"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {open ? (zh ? "收起" : "Less") : `+${hidden}`}
+          <CaretDown size={11} />
+        </button>
+      )}
+      {trailing}
+    </div>
+  );
+}
+
+export default function App() {
+  const [data, setData] = useState<SiteData | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [theme, setTheme] = useState<Theme>(localTheme);
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", theme === "dark" ? "#0f1113" : "#f5f3ed");
+  }, [theme]);
+  // Until the user picks a theme explicitly, follow the OS preference.
+  useEffect(() => {
+    if (typeof matchMedia === "undefined") return;
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const change = () => {
+      if (!storedTheme()) setTheme(media.matches ? "dark" : "light");
+    };
+    media.addEventListener("change", change);
+    return () => media.removeEventListener("change", change);
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    // index.html starts this request before the bundle arrives; reuse it.
+    const early = (window as { __siteData?: Promise<unknown> }).__siteData;
+    (early ?? fetch("/data/site.json").then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }))
+      .then((raw) => unpackData(raw as Parameters<typeof unpackData>[0]))
+      .then((d) => !cancelled && setData(d))
+      .catch((e) => !cancelled && setLoadError(String(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const zhBoot = localLanguage() === "zh" || /[#&]lang=zh/.test(location.hash);
+  if (loadError)
+    return (
+      <main className="boot" role="alert">
+        <ChartScatter size={32} />
+        <h1>{zhBoot ? "数据暂时无法加载" : "Data is unavailable"}</h1>
+        <p>{loadError}</p>
+        <div className="boot-actions">
+          <button className="primary" onClick={() => location.reload()}>
+            {zhBoot ? "重试" : "Try again"}
+          </button>
+          <a href={REPO}>{zhBoot ? "打开源数据" : "Open the source data"}</a>
+        </div>
+      </main>
+    );
+  if (!data) return <BootSkeleton />;
+  return (
+    <ThemeContext.Provider value={theme}>
+      <Explorer
+        data={data}
+        theme={theme}
+        onThemeChange={(next) => {
+          saveTheme(next);
+          document.documentElement.dataset.theme = next;
+          setTheme(next);
+        }}
+      />
+    </ThemeContext.Provider>
+  );
+}
+/** Layout-shaped placeholder while site.json loads (no spinner, no layout jump). */
+function BootSkeleton() {
+  return (
+    <div className="skeleton" aria-busy="true" aria-label="Loading">
+      <div className="skeleton-header" />
+      <div className="page">
+        <div className="skeleton-hero">
+          <span style={{ width: "46%" }} />
+          <span style={{ width: "62%", height: 14 }} />
+        </div>
+        <div className="skeleton-card" />
+      </div>
+    </div>
+  );
+}
+function Explorer({
+  data,
+  theme,
+  onThemeChange,
+}: {
+  data: SiteData;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+}) {
+  const initial = useMemo(
+    () => restore(location.hash, data, localLanguage()),
+    [data],
+  );
+  const [state, setState] = useState<State>(initial.state);
+  const [warning, setWarning] = useState(initial.warning);
+  const [panel, setPanel] = useState<
+    "models" | "filters" | "display" | "download" | "share" | null
+  >(null);
+  const [detail, setDetail] = useState<Row[] | null>(null);
+  const [modelSearch, setModelSearch] = useState("");
+  const tableScroll = useRef<HTMLDivElement>(null);
+  const [toast, setToast] = useState("");
+  const chart = useRef<ChartHandle | null>(null);
+  const zh = state.lang === "zh";
+  const t = (en: string, cn: string) => (zh ? cn : en);
+  const patch = (update: Partial<State>) =>
+    setState((s) => ({ ...s, ...update }));
+  useEffect(() => {
+    document.documentElement.lang = state.lang === "zh" ? "zh-CN" : "en";
+    document.title = zh
+      ? "真实 API 定价 · 价格背后的能力"
+      : "Real API Pricing · The cost behind the capability";
+    saveLanguage(state.lang);
+  }, [state.lang, zh]);
+  useEffect(() => {
+    // Debounced: typing in a search box must not flood the History API.
+    const timer = setTimeout(() => {
+      const hash = serialize(state);
+      if (location.hash !== hash)
+        history.replaceState(null, "", location.pathname + location.search + hash);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [state]);
+  useEffect(() => {
+    const change = () => {
+      const parsed = restore(location.hash, data, localLanguage());
+      setState(parsed.state);
+      setWarning(parsed.warning);
+    };
+    window.addEventListener("hashchange", change);
+    return () => window.removeEventListener("hashchange", change);
+  }, [data]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  // Keyed on the fields each derivation reads, so typing in a search box does
+  // not rebuild the rows (and with them the whole chart) on every keystroke.
+  const {
+    board, harness, effort, modes, configuration, view, selected,
+    vendors, channels, plans, billing, confidence, feeBand,
+  } = state;
+  const rows = useMemo(
+    () => rowsFor(data, state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, board, harness, effort, modes, configuration, view, selected,
+      vendors, channels, plans, billing, confidence, feeBand],
+  );
+  const shown = useMemo(
+    () => tableRows(rows, state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, state.query, state.sort, state.direction, state.lang],
+  );
+  const pts = useMemo(
+    () => visiblePoints(data, state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, view, selected, vendors, channels, plans, billing, confidence, feeBand],
+  );
+  const axis = useMemo(() => barAxis(data, view), [data, view]);
+  const gs = useMemo(() => groups(rows), [rows]);
+  const front = useMemo(() => pareto(gs), [gs]);
+  const frontRows = useMemo(
+    () => new Set(front.flatMap((g) => g.rows.map((r) => r.key))),
+    [front],
+  );
+  const [highlight, setHighlight] = useState<string | null>(null);
+  // Legend counts ignore the channel filter itself, so every channel stays
+  // listed (and clickable) while one or more are isolated.
+  const legendCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of visiblePoints(data, { ...state, channels: [] }))
+      counts.set(p.channel, (counts.get(p.channel) ?? 0) + 1);
+    return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, view, selected, vendors, plans, billing, confidence, feeBand]);
+  const opts = useMemo(() => options(data), [data]);
+  const selectedIds = useMemo(
+    () => new Set(state.selected ?? data.points.map((p) => p.id)),
+    [state.selected, data],
+  );
+  const models = useMemo(() => {
+    const map = new Map<string, Point[]>();
+    for (const p of data.points)
+      map.set(p.model, [...(map.get(p.model) || []), p]);
+    return [...map].sort((a, b) =>
+      a[1][0].model_display.localeCompare(b[1][0].model_display),
+    );
+  }, [data]);
+  const noScore = useMemo(() => {
+    const scored = new Set(rows.filter((r) => r.score !== null).map((r) => r.point.id));
+    return pts.filter((p) => !scored.has(p.id));
+  }, [rows, pts]);
+  const activeFilters = filterKeys.flatMap((k) =>
+    state[k].map((v) => ({ k, v })),
+  );
+  const changeSelection = (ids: string[], checked: boolean) => {
+    const next = new Set(selectedIds);
+    for (const id of ids) checked ? next.add(id) : next.delete(id);
+    patch({ selected: next.size === data.points.length ? null : [...next] });
+  };
+  const toggleFilter = (k: FilterKey, v: string) =>
+    patch({
+      [k]: state[k].includes(v)
+        ? state[k].filter((x) => x !== v)
+        : [...state[k], v],
+    });
+  const reset = () => {
+    setState({
+      ...defaultState(),
+      lang: state.lang,
+      view: state.view,
+      board: state.board,
+    });
+    setWarning(false);
+  };
+  const filterValue = (v: string, key?: FilterKey) =>
+    key === "effort" && v !== "unknown"
+      ? (effortLabel(v, state.lang) ?? v)
+      : v === "unknown"
+      ? t("Unknown / unreported", "未知 / 未报告")
+      : v === "subscription"
+        ? t("Subscription", "订阅")
+        : v === "metered"
+          ? t("Metered API", "按量 API")
+          : v === "high"
+            ? t("High", "高")
+            : v === "medium"
+              ? t("Medium", "中")
+              : v === "low"
+                ? t("Low", "低")
+                : displayPlan(v, state.lang);
+  // Built from state, not location.href: the hash is written on a debounce.
+  const shareUrl = location.origin + location.pathname + location.search + serialize(state);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setToast(
+        t(
+          "Link copied. Your current view and filters are included.",
+          "已复制链接，包含当前视图和筛选。",
+        ),
+      );
+    } catch {
+      setPanel("share");
+    }
+  };
+  const tabs: {
+    view: View;
+    en: string;
+    cn: string;
+    shortEn: string;
+    shortCn: string;
+    hintEn: string;
+    hintCn: string;
+  }[] = [
+    {
+      view: "pareto",
+      en: "Price × capability",
+      cn: "价格 × 能力",
+      shortEn: "Capability",
+      shortCn: "价格×能力",
+      hintEn: "Scored models and the current frontier",
+      hintCn: "全部有分模型与当前前沿",
+    },
+    {
+      view: "price",
+      en: "Real price",
+      cn: "真实单价",
+      shortEn: "Price",
+      shortCn: "真实单价",
+      hintEn: "Every subscription and API, cheapest first",
+      hintCn: "全部订阅与 API，由低到高",
+    },
+    {
+      view: "allowance",
+      en: "Monthly allowance",
+      cn: "月额度",
+      shortEn: "Allowance",
+      shortCn: "月额度",
+      hintEn: "Adopted subscription allowances",
+      hintCn: "全部已采用订阅额度",
+    },
+    {
+      view: "table",
+      en: "Full table",
+      cn: "完整数据表",
+      shortEn: "Table",
+      shortCn: "数据表",
+      hintEn: "Every plan, configuration and source",
+      hintCn: "每个套餐、评测配置与来源",
+    },
+  ];
+  const scored = state.view === "pareto" || state.view === "table";
+  const [chartSlot, setChartSlot] = useState<HTMLDivElement | null>(null);
+  const sort = (key: string) =>
+    patch({
+      sort: key,
+      direction:
+        state.sort === key && state.direction === "asc" ? "desc" : "asc",
+    });
+  const sortHead = (key: string, en: string, cn: string, numeric = false) => (
+    <th
+      className={numeric ? "numeric" : undefined}
+      aria-sort={
+        state.sort === key
+          ? state.direction === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
+      }
+    >
+      <button onClick={() => sort(key)}>
+        {t(en, cn)}
+        {state.sort === key ? (
+          state.direction === "asc" ? (
+            <ArrowUp size={12} />
+          ) : (
+            <ArrowDown size={12} />
+          )
+        ) : (
+          <CaretDown size={11} className="faint" />
+        )}
+      </button>
+    </th>
+  );
+  const rowSignature = shown.map((row) => row.key).join("|");
+  useEffect(() => {
+    if (tableScroll.current) tableScroll.current.scrollTop = 0;
+  }, [rowSignature]);
+  const { limit: tableLimit, sentinel: tableSentinel } = useIncremental(
+    shown.length,
+    rowSignature,
+    tableScroll,
+  );
+  const boardInfo = data.boards[state.board];
+  const boardVersion = boardInfo.name.match(/\bv\d+(?:\.\d+)+/)?.[0];
+  return (
+    <>
+      <a className="skip-link" href="#workspace">
+        {t("Skip to the data", "跳到数据")}
+      </a>
+      <header className="site-header">
+        <div className="header-inner">
+          <a
+            className="brand"
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              patch({ view: "pareto" });
+            }}
+          >
+            <ChartScatter size={24} weight="bold" />
+            <span>Real API Pricing</span>
+          </a>
+          <nav aria-label={t("Main navigation", "主导航")}>
+            <button
+              className={state.view !== "method" ? "nav-link current" : "nav-link"}
+              aria-current={state.view !== "method" ? "page" : undefined}
+              onClick={() => patch({ view: "pareto" })}
+            >
+              {t("Explore", "数据探索")}
+            </button>
+            <button
+              className={state.view === "method" ? "nav-link current" : "nav-link"}
+              aria-current={state.view === "method" ? "page" : undefined}
+              onClick={() => patch({ view: "method" })}
+            >
+              {t("Methodology", "方法与来源")}
+            </button>
+          </nav>
+          <div className="header-actions">
+            <HeaderActions lang={state.lang} />
+            <button
+              className="icon-button theme-toggle"
+              onClick={() => onThemeChange(theme === "dark" ? "light" : "dark")}
+              aria-label={
+                theme === "dark"
+                  ? t("Switch to light mode", "切换为浅色模式")
+                  : t("Switch to dark mode", "切换为深色模式")
+              }
+              title={theme === "dark" ? t("Light mode", "浅色模式") : t("Dark mode", "深色模式")}
+            >
+              {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
+            <button
+              className="language"
+              lang={zh ? "en" : "zh-CN"}
+              onClick={() => patch({ lang: zh ? "en" : "zh" })}
+              title={zh ? "Switch to English" : "切换为中文"}
+            >
+              {zh ? "EN" : "中文"}
+            </button>
+            <a
+              href={REPO}
+              className="icon-button github"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="GitHub"
+            >
+              <GithubLogo size={19} />
+            </a>
+          </div>
+        </div>
+      </header>
+      <main className="page" id="main">
+        {warning && (
+          <div className="notice" role="status">
+            <Info size={18} />
+            {t(
+              "Some saved settings are no longer available and were ignored. Review the selection below.",
+              "部分分享设置已失效并被忽略，请检查当前选择。",
+            )}
+            <button
+              className="icon-button"
+              aria-label={t("Dismiss", "关闭")}
+              onClick={() => setWarning(false)}
+            >
+              <X />
+            </button>
+          </div>
+        )}
+        {state.view === "method" ? (
+          <Method
+            data={data}
+            zh={zh}
+            onBack={() => patch({ view: "pareto" })}
+          />
+        ) : (
+          <>
+            <section className="intro">
+              <div className="intro-copy">
+                <h1>
+                  {zh ? (
+                    <>
+                      看清能力背后的
+                      <br className="mobile-break" />
+                      真实价格。
+                    </>
+                  ) : (
+                    "The cost behind the capability."
+                  )}
+                </h1>
+                <p className="lede">
+                  {t(
+                    "Monthly subscription fee ÷ the tokens you can actually use, set against independent leaderboards.",
+                    "订阅月费 ÷ 每月实际可用 token，对照独立榜单的能力分数。",
+                  )}
+                </p>
+              </div>
+              <dl className="intro-stats">
+                <div>
+                  <dt>{t("Plan × model points", "套餐 × 模型")}</dt>
+                  <dd>{data.points.length}</dd>
+                </div>
+                <div>
+                  <dt>{t("Leaderboards", "独立榜单")}</dt>
+                  <dd>{Object.keys(data.boards).length}</dd>
+                </div>
+                <div>
+                  <dt>{t("Snapshot", "数据快照")}</dt>
+                  <dd>{String(data.generatedAt).slice(0, 10)}</dd>
+                </div>
+              </dl>
+            </section>
+            <section
+              className="workspace"
+              id="workspace"
+              tabIndex={-1}
+              aria-label={t("Data explorer", "数据浏览器")}
+            >
+              <div className="workspace-top">
+                <div className="view-tabs" role="group" aria-label={t("Data views", "数据视图")}>
+                  {tabs.map((tab) => (
+                    <button
+                      key={tab.view}
+                      className={state.view === tab.view ? "view-tab active" : "view-tab"}
+                      aria-pressed={state.view === tab.view}
+                      title={t(tab.hintEn, tab.hintCn)}
+                      onClick={() => patch({ view: tab.view })}
+                    >
+                      {tab.view === "pareto" ? (
+                        <ChartScatter size={16} />
+                      ) : tab.view === "price" ? (
+                        <Coins size={16} />
+                      ) : tab.view === "allowance" ? (
+                        <ChartBar size={16} />
+                      ) : (
+                        <Table size={16} />
+                      )}
+                      <span className="tab-long">{t(tab.en, tab.cn)}</span>
+                      <span className="tab-short" aria-hidden="true">
+                        {t(tab.shortEn, tab.shortCn)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <div className="chart-actions">
+                  <button
+                    className="icon-button"
+                    title={t("Copy a link to this view", "复制当前视图链接")}
+                    aria-label={t("Copy a link to this view", "复制当前视图链接")}
+                    onClick={() => void copy()}
+                  >
+                    <LinkSimple size={18} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    title={t("Download", "下载")}
+                    aria-label={t("Download", "下载")}
+                    onClick={() => setPanel("download")}
+                  >
+                    <DownloadSimple size={18} />
+                  </button>
+                  {state.view === "pareto" && (
+                    <button
+                      className="icon-button"
+                      title={t("Chart settings", "图表设置")}
+                      aria-label={t("Chart settings", "图表设置")}
+                      onClick={() => setPanel("display")}
+                    >
+                      <SlidersHorizontal size={18} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              {scored && (
+                <div className="board-tabs" role="group" aria-label={t("Leaderboards", "榜单")}>
+                  {Object.keys(data.boards).map((id) => (
+                    <button
+                      key={id}
+                      className={state.board === id ? "board-tab selected" : "board-tab"}
+                      aria-pressed={state.board === id}
+                      onClick={() => patch({ board: id })}
+                    >
+                      {(zh ? boardZh : boardLabels)[id] || data.boards[id].name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="view-context">
+                {scored ? (
+                  <>
+                    <span>
+                      {metricLabel(boardInfo.metric, state.lang)}
+                      {boardVersion ? ` ${boardVersion}` : ""}
+                      {state.board === "arena_code" ? t(" · WebDev Overall", " · 网页开发 Overall") : ""}
+                    </span>
+                    <span>
+                      {t("Snapshot", "快照")} {boardInfo.snapshot}
+                    </span>
+                    <a href={boardInfo.url} target="_blank" rel="noreferrer">
+                      {t("Source", "来源")}
+                      <ArrowUpRight size={12} />
+                    </a>
+                  </>
+                ) : state.view === "price" ? (
+                  <span>
+                    {t(
+                      "Monthly subscription fee ÷ usable tokens. Metered APIs use the project workload (Anthropic models price the input share as cache writes).",
+                      "订阅月费 ÷ 可用 token；按量 API 采用项目统一负载（Anthropic 档以缓存写替代普通输入份额）。",
+                    )}
+                  </span>
+                ) : (
+                  <span>
+                    {t(
+                      "Saturated use · all token types · subscription plans only",
+                      "饱和使用 · 全口径 token · 仅订阅套餐",
+                    )}
+                  </span>
+                )}
+              </p>
+              <div className="toolbar">
+                <button className="select-models" onClick={() => setPanel("models")}>
+                  <CheckSquare size={17} />
+                  <span>{t("Models & plans", "模型与套餐")}</span>
+                  <span className="count">
+                    {selectedIds.size} / {data.points.length}
+                  </span>
+                  <CaretDown size={13} />
+                </button>
+                <button
+                  className={activeFilters.length ? "filter-button has-filters" : "filter-button"}
+                  onClick={() => setPanel("filters")}
+                >
+                  <FunnelSimple size={16} />
+                  {t("Filters", "筛选")}
+                  {activeFilters.length > 0 && <span className="count">{activeFilters.length}</span>}
+                </button>
+                {scored && (
+                  <label
+                    className="config-select"
+                    title={t(
+                      "Scores are reference mappings from public leaderboards, not measurements of each plan.",
+                      "分数是公开榜单的参考映射，并非对各套餐的实测。",
+                    )}
+                  >
+                    <span className="sr-only">{t("Benchmark configurations", "评测配置")}</span>
+                    <select
+                      value={state.configuration}
+                      onChange={(e) =>
+                        patch({ configuration: e.target.value as State["configuration"] })
+                      }
+                    >
+                      <option value="summary">
+                        {t("Best score per model", "每个模型取最高分")}
+                      </option>
+                      <option value="all">
+                        {t("All configurations", "全部评测配置")}
+                      </option>
+                    </select>
+                  </label>
+                )}
+                {state.view === "allowance" && (
+                  <div className="fee-bands" role="group" aria-label={t("Monthly subscription fee", "订阅月费分档")}>
+                    <span className="fee-label">{t("Monthly fee", "月费")}</span>
+                    <div className="segmented">
+                      <button aria-pressed={state.feeBand === "all"} onClick={() => patch({ feeBand: "all" })}>
+                        {t("All", "全部")}
+                      </button>
+                      {feeBands.map((b) => (
+                        <button
+                          key={b.id}
+                          aria-pressed={state.feeBand === b.id}
+                          title={zh ? b.labelZh : b.labelEn}
+                          onClick={() => patch({ feeBand: b.id })}
+                        >
+                          {b.label}
+                        </button>
+                      ))}
+                    </div>
+                    <span
+                      className="fee-note"
+                      tabIndex={0}
+                      role="note"
+                      title={t(
+                        "USD per month · CNY plans use the project exchange rate. All includes plans over $300.",
+                        "美元 / 月 · 人民币套餐按项目汇率折算；全部包含超过 $300 的套餐。",
+                      )}
+                      aria-label={t(
+                        "USD per month · CNY plans use the project exchange rate. All includes plans over $300.",
+                        "美元 / 月 · 人民币套餐按项目汇率折算；全部包含超过 $300 的套餐。",
+                      )}
+                    >
+                      <Info size={15} />
+                    </span>
+                  </div>
+                )}
+                <span className="toolbar-space" />
+                <div className="chart-tools-slot" ref={setChartSlot} />
+                {state.view !== "pareto" && (
+                  <label className="search toolbar-search">
+                    <MagnifyingGlass size={16} />
+                    <input
+                      type="search"
+                      aria-label={t("Search", "搜索")}
+                      placeholder={t("Search model, plan or channel…", "搜索模型、套餐或渠道…")}
+                      value={state.query}
+                      onChange={(e) => patch({ query: e.target.value })}
+                    />
+                    {state.query && (
+                      <button
+                        className="icon-button"
+                        onClick={() => patch({ query: "" })}
+                        aria-label={t("Clear search", "清空搜索")}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </label>
+                )}
+                <span className="results-count">
+                  {state.view === "pareto" ? (
+                    <>
+                      <b>{pts.length}</b> {t("points", "个数据点")}
+                    </>
+                  ) : (
+                    <>
+                      <b>{shown.length}</b> {t("results", "条结果")}
+                    </>
+                  )}
+                </span>
+              </div>
+              {(activeFilters.length > 0 || state.selected !== null) && (
+                <div className="chips">
+                  {state.selected !== null && (
+                    <button onClick={() => patch({ selected: null })}>
+                      {selectedIds.size} {t("selected points", "已选数据点")}
+                      <X size={12} />
+                    </button>
+                  )}
+                  {activeFilters.map(({ k, v }) => (
+                    <button key={k + v} onClick={() => toggleFilter(k, v)}>
+                      {filterLabels[k][zh ? 1 : 0]}: {filterValue(v, k)}
+                      <X size={12} />
+                    </button>
+                  ))}
+                  <button className="clear-all" onClick={reset}>
+                    {t("Reset all", "重置全部")}
+                  </button>
+                </div>
+              )}
+              <OneLineLegend
+                label={t("Access channels", "订阅渠道")}
+                signature={legendCounts.map(([c, n]) => c + n).join("|")}
+                zh={zh}
+                trailing={
+                  state.view === "pareto" && state.frontier ? (
+                    <span className="frontier-legend">
+                      <i />
+                      {t("Frontier of current selection", "当前筛选前沿")}
+                    </span>
+                  ) : null
+                }
+              >
+                {legendCounts.map(([c, n]) => {
+                  const active = state.channels.includes(c);
+                  const muted = state.channels.length > 0 && !active;
+                  return (
+                    <button
+                      key={c}
+                      className={`legend-item${active ? " active" : ""}${muted ? " muted" : ""}`}
+                      aria-pressed={active}
+                      title={
+                        active
+                          ? t(`Stop filtering by ${c}`, `取消只看 ${c}`)
+                          : t(`Show only ${c}`, `只看 ${c}`)
+                      }
+                      onMouseEnter={() => setHighlight(c)}
+                      onMouseLeave={() => setHighlight(null)}
+                      onFocus={() => setHighlight(c)}
+                      onBlur={() => setHighlight(null)}
+                      onClick={() => {
+                        setHighlight(null);
+                        toggleFilter("channels", c);
+                      }}
+                    >
+                      <i
+                        style={{
+                          background: dotColors(colors[c] ?? FALLBACK_COLOR, theme === "dark").fill,
+                        }}
+                      />
+                      {c}
+                      <span className="legend-count">{n}</span>
+                    </button>
+                  );
+                })}
+              </OneLineLegend>
+              {!pts.length || (state.view === "pareto" && !gs.length) ? (
+                <div className="empty">
+                  <ChartScatter size={35} />
+                  <h3>{t("No points to plot", "没有可绘制的数据点")}</h3>
+                  <p>
+                    {pts.length
+                      ? t(
+                          "These models have no matching score for this benchmark configuration. Their data is still in the table.",
+                          "当前模型没有匹配的榜单配置分数，仍可在表格中查看。",
+                        )
+                      : t(
+                          "Try another selection or clear your filters.",
+                          "请调整选择或清除筛选。",
+                        )}
+                  </p>
+                  <button onClick={reset}>
+                    {t("Reset selection", "恢复全部数据")}
+                  </button>
+                </div>
+              ) : state.view === "table" ? null : state.view !== "pareto" ? (
+                <Ranking
+                  rows={rows}
+                  state={state}
+                  axis={axis}
+                  highlight={highlight}
+                  onSelect={setDetail}
+                  handle={chart}
+                  onQuery={(query) => patch({ query })}
+                />
+              ) : (
+                <Chart
+                  rows={rows}
+                  state={state}
+                  data={data}
+                  theme={theme}
+                  highlight={highlight}
+                  onSelect={setDetail}
+                  onSearch={(find, lock) => patch({ find, lock })}
+                  handle={chart}
+                  toolsSlot={chartSlot}
+                />
+              )}
+              {state.view === "pareto" && (
+                <div className="chart-foot">
+                  {noScore.length > 0 ? (
+                    <details className="unscored">
+                      <summary>
+                        {noScore.length} {t("points without a matching score", "个数据点缺少匹配分数")}
+                      </summary>
+                      <p>
+                        {t(
+                          "No archived score matches this model and the current configuration filters. No score is inferred.",
+                          "当前模型与配置筛选没有匹配的存档分数，不推算补分。",
+                        )}
+                      </p>
+                      <div>
+                        {noScore.map((p) => (
+                          <button
+                            key={p.id}
+                            onClick={() => setDetail([{ key: p.id, point: p, mapping: null, score: null }])}
+                          >
+                            {p.model_display} · {displayPlan(p.plan, state.lang)}
+                            <ArrowUpRight size={12} />
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  ) : (
+                    <span />
+                  )}
+                  <span className="foot-stats">
+                    {gs.length} {t("plotted coordinates", "绘制坐标")} · {front.length}{" "}
+                    {t("on the frontier", "前沿坐标")}
+                  </span>
+                </div>
+              )}
+              {state.view === "table" && pts.length > 0 && (
+                <div className="table-view">
+                  <div
+                    className="table-scroll"
+                    ref={tableScroll}
+                    role="region"
+                    tabIndex={0}
+                    aria-label={t("Scrollable data table", "可滚动数据明细表")}
+                  >
+                    <table>
+                      <thead>
+                        <tr>
+                          <th className="row-number">#</th>
+                          {sortHead("model", "Model", "模型")}
+                          {sortHead("plan", "Plan · channel", "套餐 · 渠道")}
+                          {sortHead("price", "Real price / MTok", "真实单价 / MTok", true)}
+                          {sortHead("fee", "Monthly fee", "订阅月费", true)}
+                          {sortHead("allowance", "Monthly tokens", "月 token", true)}
+                          {sortHead("score", "Score", "分数", true)}
+                          <th>{t("Quota confidence", "额度置信度")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shown.slice(0, tableLimit).map((r, i) => {
+                          const config = r.mapping
+                            ? [r.mapping.agent_harness, effortLabel(r.mapping.reasoning_effort, state.lang), r.mapping.service_mode]
+                                .filter(Boolean)
+                                .join(" · ")
+                            : "";
+                          return (
+                            <tr
+                              key={r.key}
+                              onClick={() => setDetail([r])}
+                              className={frontRows.has(r.key) ? "frontier-row" : undefined}
+                            >
+                              <td className="row-number">{i + 1}</td>
+                              <td>
+                                <button
+                                  className="model-cell"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDetail([r]);
+                                  }}
+                                >
+                                  <BrandMarks point={r.point} size={24} />
+                                  <span>
+                                    <strong>{r.point.model_display}</strong>
+                                    {config && <small>{config}</small>}
+                                  </span>
+                                </button>
+                              </td>
+                              <td>
+                                <strong className="plan-name">{displayPlan(r.point.plan, state.lang)}</strong>
+                                <small className="channel-line">
+                                  <i className="vendor-dot" style={{ background: dotColors(color(r.point), theme === "dark").fill }} />
+                                  {accessLine(r.point)} · {filterValue(r.point.billing)}
+                                </small>
+                              </td>
+                              <td className="numeric real-price">
+                                {price(r.point.real_usd_per_mtok)}
+                                {frontRows.has(r.key) && (
+                                  <small className="frontier-tag">{t("Frontier", "前沿")}</small>
+                                )}
+                              </td>
+                              <td className="numeric">
+                                {r.point.billing === "metered" ? "—" : price(r.point.price_usd)}
+                                {r.point.currency === "CNY" && <small>¥{r.point.original_price}</small>}
+                              </td>
+                              <td className="numeric">{allowance(r.point, state.lang)}</td>
+                              <td className="numeric">
+                                {number(r.score, state.lang, 2)}
+                                {r.mapping?.score_is_estimated && <small>{t("AA estimate", "AA 估计值")}</small>}
+                                {r.mapping?.score_is_self_reported && <small>{t("vendor self-report", "厂商自报")}</small>}
+                              </td>
+                              <td>
+                                <span className={`confidence ${r.point.confidence}`}>
+                                  <i />
+                                  {filterValue(r.point.confidence)}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {tableLimit < shown.length && (
+                          <tr className="sentinel-row" aria-hidden="true">
+                            <td colSpan={8}>
+                              <span ref={(el) => void (tableSentinel.current = el)}>
+                                {t("Loading more rows…", "正在加载更多行…")}
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                    {!shown.length && (
+                      <div className="empty table-empty">
+                        <h3>{t("No matching rows", "没有匹配的行")}</h3>
+                        <button onClick={() => patch({ query: "" })}>{t("Clear the search", "清除搜索")}</button>
+                      </div>
+                    )}
+                  </div>
+                  <ResizeHandle
+                    target={tableScroll}
+                    label={t("Drag to resize the table · double-click to reset", "拖动调整表格高度，双击恢复")}
+                  />
+                </div>
+              )}
+            </section>
+            <aside className="method-note">
+              <Info size={16} />
+              <p>
+                {t(
+                  "A price floor at saturated use. All tokens count; a month is 4 weeks, except Kimi’s independent 5-week pool and Droid’s 2× weekly month. Model allowances within a plan are alternatives, not additive.",
+                  "这是饱和使用时的价格下限。所有 token 均计入；默认月为 4 周，Kimi 独立月池为周池的 5 倍，Droid 月额度为周额度的 2 倍。同套餐不同模型额度不能相加。",
+                )}{" "}
+                <button onClick={() => patch({ view: "method" })}>
+                  {t("Read the methodology", "查看完整口径")}
+                  <ArrowUpRight size={13} />
+                </button>
+              </p>
+            </aside>
+          </>
+        )}
+      </main>
+      <footer className="site-footer">
+        <div className="footer-inner">
+          <span className="footer-brand">
+            <ChartScatter size={18} weight="bold" />
+            Real API Pricing
+          </span>
+          <p>{t("Transparent numbers. Informed choices.", "透明的数据，更有依据的选择。")}</p>
+          <nav aria-label={t("Footer", "页脚")}>
+            <button className="link-button" onClick={() => patch({ view: "method" })}>
+              {t("Methodology", "方法与来源")}
+            </button>
+            <a href={`${REPO}/blob/main/SOURCES.md`} target="_blank" rel="noreferrer">
+              {t("Sources & attribution", "来源与署名")}
+              <ArrowUpRight size={12} />
+            </a>
+            <a href="/data/points.json" download>
+              {t("Open data", "开放数据")}
+              <ArrowUpRight size={12} />
+            </a>
+            <a href={`${REPO}/blob/main/LICENSE`} target="_blank" rel="noreferrer">
+              MIT
+              <ArrowUpRight size={12} />
+            </a>
+          </nav>
+        </div>
+      </footer>
+      {toast && (
+        <div className="toast" role="status">
+          <Check size={18} />
+          {toast}
+        </div>
+      )}
+      {panel && (
+        <Modal
+          title={
+            panel === "models"
+              ? t("Choose models & plans", "选择模型与套餐")
+              : panel === "filters"
+                ? t("Refine your view", "筛选数据")
+                : panel === "display"
+                  ? t("Chart settings", "图表设置")
+                  : panel === "share"
+                    ? t("Share this view", "分享当前视图")
+                    : t("Take the data with you", "下载图表与数据")
+          }
+          onClose={() => setPanel(null)}
+          wide={panel === "models" || panel === "filters"}
+          closeLabel={t("Close", "关闭")}
+        >
+          {panel === "models" && (
+            <>
+              <p className="panel-description">
+                {t(
+                  "Choose a model, then refine its access channels and plans. All selections update the chart and table together.",
+                  "选择整个模型，或展开选择具体渠道和套餐。图表与表格同步更新。",
+                )}
+              </p>
+              <label className="search">
+                <MagnifyingGlass size={18} />
+                <input
+                  autoFocus
+                  value={modelSearch}
+                  onChange={(e) => setModelSearch(e.target.value)}
+                  placeholder={t(
+                    "Search any model, channel or plan…",
+                    "搜索模型、渠道或套餐…",
+                  )}
+                  aria-label={t("Search model selection", "搜索模型选择")}
+                />
+              </label>
+              <div className="selection-actions">
+                <span>
+                  {selectedIds.size} / {data.points.length}{" "}
+                  {t("selected", "已选择")}
+                </span>
+                <button onClick={() => patch({ selected: null })}>
+                  {t("Select all", "全选")}
+                </button>
+                <button onClick={() => patch({ selected: [] })}>
+                  {t("Clear", "清空")}
+                </button>
+                <button
+                  onClick={() => {
+                    patch({ selected: null });
+                    setModelSearch("");
+                  }}
+                >
+                  {t("Restore default", "恢复默认")}
+                </button>
+              </div>
+              <div className="model-list">
+                {models
+                  .filter(([, points]) =>
+                    points.some((p) =>
+                      `${p.model_display} ${p.channel} ${displayPlan(p.plan, state.lang)}`
+                        .toLowerCase()
+                        .includes(modelSearch.toLowerCase()),
+                    ),
+                  )
+                  .map(([id, points]) => {
+                    const selected = points.filter((p) =>
+                      selectedIds.has(p.id),
+                    ).length;
+                    return (
+                      <details key={id} className="model-group">
+                        <summary>
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <CheckBox
+                              checked={selected === points.length}
+                              mixed={selected > 0 && selected < points.length}
+                              onChange={() =>
+                                changeSelection(
+                                  points.map((p) => p.id),
+                                  selected !== points.length,
+                                )
+                              }
+                              label={points[0].model_display}
+                            />
+                          </span>
+                          <span className="model-summary">
+                            <strong className="model-with-logo">
+                              <ProviderLogo provider={manufacturer(points[0].vendor)} />
+                              {points[0].model_display}
+                            </strong>
+                            <small>
+                              {manufacturer(points[0].vendor)} · {points.length}{" "}
+                              {t("plans", "个套餐")}
+                            </small>
+                          </span>
+                          <span className="selection-fraction">
+                            {selected}/{points.length}
+                          </span>
+                          <CaretDown size={14} />
+                        </summary>
+                        <div className="plan-options">
+                          {[...new Set(points.map((p) => p.channel))].map(
+                            (channel) => (
+                              <div key={channel}>
+                                <h4>{channel}</h4>
+                                {points
+                                  .filter((p) => p.channel === channel)
+                                  .map((p) => (
+                                    <label key={p.id}>
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedIds.has(p.id)}
+                                        onChange={() =>
+                                          changeSelection(
+                                            [p.id],
+                                            !selectedIds.has(p.id),
+                                          )
+                                        }
+                                      />
+                                      <span>
+                                        {displayPlan(p.plan, state.lang)}
+                                      </span>
+                                      <small>
+                                        {price(p.real_usd_per_mtok)} / MTok
+                                      </small>
+                                    </label>
+                                  ))}
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      </details>
+                    );
+                  })}
+              </div>
+              <div className="panel-bottom">
+                <button className="primary" onClick={() => setPanel(null)}>
+                  {t("Show selection", "查看所选数据")}
+                  <ArrowUpRight size={16} />
+                </button>
+              </div>
+            </>
+          )}
+          {panel === "filters" && (
+            <>
+              <p className="panel-description">
+                {t(
+                  "Selections within a group are combined. Different groups narrow the results together. Configuration filters affect score references; unscored plans remain in the table.",
+                  "同组条件取并集，不同组共同筛选。评测配置筛选影响分数参考，无匹配分数的套餐仍保留在表格中。",
+                )}
+              </p>
+              <div className="filter-grid">
+                {filterKeys.map((k) => (
+                  <fieldset key={k}>
+                    <legend>
+                      {filterLabels[k][zh ? 1 : 0]}{" "}
+                      {state[k].length > 0 && (
+                        <button onClick={() => patch({ [k]: [] })}>
+                          {t("Clear", "清除")}
+                        </button>
+                      )}
+                    </legend>
+                    <div className="filter-options">
+                      {opts[k].map((v) => (
+                        <label key={v}>
+                          <input
+                            type="checkbox"
+                            checked={state[k].includes(v)}
+                            onChange={() => toggleFilter(k, v)}
+                          />
+                          {filterValue(v, k)}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                ))}
+              </div>
+              <div className="panel-bottom">
+                <button
+                  onClick={() =>
+                    patch(Object.fromEntries(filterKeys.map((k) => [k, []])))
+                  }
+                >
+                  {t("Clear all filters", "清除全部筛选")}
+                </button>
+                <button className="primary" onClick={() => setPanel(null)}>
+                  {t("Show results", "查看结果")} · {pts.length}
+                </button>
+              </div>
+            </>
+          )}
+          {panel === "display" && (
+            <div className="settings">
+              <label>
+                <span>
+                  {t("Show frontier of current selection", "显示当前筛选前沿")}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={state.frontier}
+                  onChange={(e) => patch({ frontier: e.target.checked })}
+                />
+              </label>
+              <label>
+                <span>{t("Point labels", "数据点标签")}</span>
+                <select
+                  value={state.labels}
+                  onChange={(e) =>
+                    patch({ labels: e.target.value as State["labels"] })
+                  }
+                >
+                  <option value="frontier">
+                    {t("Frontier only", "仅前沿")}
+                  </option>
+                  <option value="all">{t("All points", "全部数据点")}</option>
+                  <option value="none">{t("None", "不显示")}</option>
+                </select>
+              </label>
+              <p className="panel-description">
+                {t(
+                  "These settings apply to the price–capability chart. All data remains visible regardless of label density. Drag to pan; double-click to reset the chart.",
+                  "设置作用于价格 × 能力图。标签密度不改变数据集。拖动平移，双击恢复图表。",
+                )}
+              </p>
+            </div>
+          )}
+          {panel === "download" && (
+            <div className="download-list">
+              <h3>{t("Current selection", "当前选择")}</h3>
+              {(state.view === "price" || state.view === "allowance") && (
+                <p className="panel-description">
+                  {t(
+                    "Ranking images include every filtered row, not only the rows on screen.",
+                    "排名图片包含全部筛选行，不只是屏幕上可见的行。",
+                  )}
+                </p>
+              )}
+              {state.view !== "table" && (["png", "svg"] as const).map((format) => (
+                <button
+                  key={format}
+                  disabled={!chart.current || state.view === "method"}
+                  onClick={async () => {
+                    try {
+                      await chart.current?.download(format);
+                      setToast(t("Chart exported.", "图表已导出。"));
+                    } catch {
+                      setToast(
+                        t(
+                          "Could not export the chart. Please try again.",
+                          "图表导出失败，请重试。",
+                        ),
+                      );
+                    }
+                  }}
+                >
+                  <DownloadSimple />
+                  {t("Chart", "图表")} · {format.toUpperCase()}
+                  <ArrowUpRight />
+                </button>
+              ))}
+              <button
+                onClick={() =>
+                  downloadText(
+                    csv(shown, state.lang),
+                    "real-api-pricing-selection.csv",
+                    "text/csv;charset=utf-8",
+                  )
+                }
+              >
+                <DownloadSimple />
+                {t("Table", "表格")} · CSV
+                <ArrowUpRight />
+              </button>
+              <h3>{t("Complete source data", "完整源数据")}</h3>
+              {[
+                "adopted.csv",
+                "points.csv",
+                "points.json",
+                "benchmark-configurations.json",
+                "benchmark-points.json",
+                "conventions.json",
+              ].map((f) => (
+                <a key={f} href={"/data/" + f} download>
+                  <DownloadSimple />
+                  {f}
+                  <ArrowUpRight />
+                </a>
+              ))}
+            </div>
+          )}
+          {panel === "share" && (
+            <>
+              <p>
+                {t(
+                  "Copy this link to restore the same view and filters.",
+                  "复制链接即可恢复相同视图和筛选。",
+                )}
+              </p>
+              <textarea
+                className="share-url"
+                readOnly
+                value={shareUrl}
+                onFocus={(e) => e.target.select()}
+                aria-label={t("Share link", "分享链接")}
+              />
+            </>
+          )}
+        </Modal>
+      )}
+      {detail && (
+        <Modal
+          title={t("Behind the number", "数据背后的依据")}
+          wide
+          onClose={() => setDetail(null)}
+          closeLabel={t("Close", "关闭")}
+        >
+          <Details rows={detail} data={data} lang={state.lang} />
+        </Modal>
+      )}
+    </>
+  );
+}
+function Details({
+  rows,
+  data,
+  lang,
+}: {
+  rows: Row[];
+  data: SiteData;
+  lang: Lang;
+}) {
+  const zh = lang === "zh";
+  const t = (en: string, cn: string) => (zh ? cn : en);
+  const points = [...new Map(rows.map((r) => [r.point.id, r.point])).values()];
+  return (
+    <div className="details-content">
+      {rows.length > 1 && (
+        <p className="reference-note">
+          {t(
+            "This coordinate contains multiple plan/configuration references. Each is retained below.",
+            "此坐标包含多个套餐或评测配置，以下逐一保留。",
+          )}
+        </p>
+      )}
+      {points.map((p) => (
+        <article key={p.id}>
+          <div className="detail-title">
+            <BrandMarks point={p} />
+            <h3>{p.model_display}</h3>
+          </div>
+          <p className="detail-sub">
+            <i className="vendor-dot" style={{ background: color(p) }} />
+            {displayPlan(p.plan, lang)} · {accessLine(p)}
+          </p>
+          {dataDateLine(p, lang) !== "" && (
+            <p className="detail-date">
+              <small>{t("Data date", "数据日期")}</small> {dataDateLine(p, lang)}
+            </p>
+          )}
+          <div className="detail-metrics">
+            <div>
+              <small>{t("Real price / MTok", "真实单价 / MTok")}</small>
+              <strong>{priceExact(p.real_usd_per_mtok)}</strong>
+            </div>
+            <div>
+              <small>{t("Monthly tokens", "月 token")}</small>
+              <strong>{allowance(p, lang)}</strong>
+            </div>
+            <div>
+              <small>{t("Quota confidence", "额度置信度")}</small>
+              <strong>
+                {(zh
+                  ? { high: "高", medium: "中", low: "低" }
+                  : { high: "High", medium: "Medium", low: "Low" })[p.confidence] ?? p.confidence}
+              </strong>
+            </div>
+          </div>
+          <div className="formula">
+            {p.billing === "metered" ? (
+              p.workload === "anthropic" ? (
+                t(
+                  "Metered API · public token prices weighted by the Anthropic workload (input share at the 5-minute cache-write rate).",
+                  "按量 API · 三段公开标价按 Anthropic 统一负载加权（普通输入份额按 5 分钟缓存写价计）。",
+                )
+              ) : (
+                t(
+                  "Metered API · public token prices weighted by the project standard workload.",
+                  "按量 API · 三段公开标价按项目标准负载加权。",
+                )
+              )
+            ) : isUnmetered(p) ? (
+              <>
+                {price(p.price_usd)} {t("/ month", "/ 月")} ÷{" "}
+                {t("unbounded usage", "无界可用量")} → ≈$0 / MTok ·{" "}
+                {unmeteredNote(p, lang)} ·{" "}
+                {t(
+                  "promotional price, not a permanent allowance",
+                  "促销价，非永久口径",
+                )}
+              </>
+            ) : (
+              <>
+                {price(p.price_usd)} {t("/ month", "/ 月")}
+                {p.currency === "CNY" ? ` (¥${p.original_price})` : ""} ÷{" "}
+                {number(p.monthly_tokens, lang, 0)} tokens × 1,000,000 ≈{" "}
+                {priceExact(p.real_usd_per_mtok)} / MTok
+              </>
+            )}
+          </div>
+          {p.billing === "subscription" && !isUnmetered(p) && (
+            <div className="basis">
+              <small>{t("Quota basis", "额度口径")}</small>
+              {p.workload ? (
+                <p>{workloadLine(p, data.conventions, lang)}</p>
+              ) : null}
+              {p.list_price ? (
+                <p>
+                  {listPriceLine(p, lang)}
+                  {p.list_blended_usd_per_mtok != null &&
+                    t(
+                      ` · standard-load blended ≈ ${price(p.list_blended_usd_per_mtok)}/MTok`,
+                      `；标准负载加权 ≈ ${price(p.list_blended_usd_per_mtok)}/MTok`,
+                    )}
+                </p>
+              ) : null}
+            </div>
+          )}
+          <details className="evidence-fold">
+            <summary>
+              {t(
+                "Adoption evidence · source and rationale (translated from the Chinese record)",
+                "采用依据 · 原始来源文字",
+              )}
+            </summary>
+            <p className="original-text">
+              {zh ? p.source : (p.source_en ?? p.source)}
+            </p>
+            {p.decision_note && (
+              <p className="original-text">
+                {zh ? p.decision_note : (p.decision_note_en ?? p.decision_note)}
+              </p>
+            )}
+            {p.note && p.note !== p.decision_note && (
+              <p className="original-text">
+                {zh ? p.note : (p.note_en ?? p.note)}
+              </p>
+            )}
+            <div className="source-links">
+              {p.evidence.map((e, i) => (
+                <a key={i} href={safeUrl(e.url)} target="_blank" rel="noreferrer">
+                  {e.label}
+                  <ArrowUpRight size={13} />
+                </a>
+              ))}
+              <a
+                href={`${REPO}/tree/main/data/research`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("Browse the public evidence archive", "浏览公开证据存档")}
+                <ArrowUpRight size={13} />
+              </a>
+            </div>
+          </details>
+          <h4>{t("Benchmark references", "评测配置参考")}</h4>
+          {rows
+            .filter((r) => r.point.id === p.id && r.mapping)
+            .map((r) => {
+              const m = r.mapping!;
+              const srcText = zh ? m.source : (m.source_en ?? m.source);
+              const srcUrl = firstUrl(srcText ?? "");
+              const srcAnnotation = srcUrl
+                ? (srcText ?? "").split(srcUrl).slice(1).join("").trim()
+                : srcText;
+              const recordNote = zh ? m.record_note_zh : m.record_note_en;
+              return (
+                <section className="configuration-detail" key={r.key}>
+                  <strong>{variantLabel(m.variant, lang)}</strong>
+                  <dl>
+                    <dt>{t("Score", "分数")}</dt>
+                    <dd>{number(m.score, lang, 4)}{m.score_is_estimated ? t(" · AA estimate; independent evaluation pending", " · AA 估计值，独立评测待完成") : ""}{m.score_is_self_reported ? t(" · vendor self-report, not an official leaderboard run", " · 厂商自报成绩，非官方榜单数据") : ""}</dd>
+                    <dt>{t("Score interval", "分数区间")}</dt>
+                    <dd>
+                      {m.score_low == null && m.score_high == null
+                        ? "—"
+                        : `${number(m.score_low, lang)} – ${number(m.score_high, lang)}`}
+                    </dd>
+                    <dt>{t("Harness / effort / mode", "框架 / 强度 / 模式")}</dt>
+                    <dd>
+                      {m.agent_harness ?? "—"} / {effortLabel(m.reasoning_effort, lang) ?? "—"} /{" "}
+                      {m.service_mode ?? "—"}
+                    </dd>
+                    <dt>{t("Mapping confidence", "映射置信度")}</dt>
+                    <dd>
+                      {(zh
+                        ? { high: "高", medium: "中", low: "低" }
+                        : { high: "High", medium: "Medium", low: "Low" })[m.mapping_confidence] ??
+                        m.mapping_confidence}
+                    </dd>
+                    <dt>
+                      {t(
+                        "Source task cost (mean / median)",
+                        "来源任务成本（均值 / 中位数）",
+                      )}
+                    </dt>
+                    <dd>
+                      {m.mean_cost_usd_per_task == null
+                        ? "—"
+                        : price(m.mean_cost_usd_per_task)}{" "}
+                      /{" "}
+                      {m.median_cost_usd_per_task == null
+                        ? "—"
+                        : price(m.median_cost_usd_per_task)}
+                    </dd>
+                  </dl>
+                  <p>
+                    {t(
+                      "This is a reference mapping, not a benchmark of this subscription/API channel. Harness and quota-measurement effort alignment are unverified. Source task costs are not subscription task costs.",
+                      "这是参考映射，并非该订阅/API 渠道的评测。产品框架和额度实测推理强度的对应关系未经验证。来源任务成本不等于订阅任务成本。",
+                    )}
+                  </p>
+                  <p className="original-text">{mappingNoteLabel(m.mapping_note, lang)}</p>
+                  <a href={safeUrl(firstUrl(m.source) ?? m.source)} target="_blank" rel="noreferrer">
+                    {data.boards[m.board]?.name ?? m.board}
+                    <ArrowUpRight size={14} />
+                  </a>
+                  <details className="evidence-fold">
+                    <summary>
+                      {t("Score source · original record", "分数来源 · 原始记录")}
+                    </summary>
+                    <dl>
+                      <dt>{t("Source page", "来源页面")}</dt>
+                      <dd>
+                        {srcUrl ? (
+                          <a href={safeUrl(srcUrl)} target="_blank" rel="noreferrer">
+                            {srcUrl}
+                            <ArrowUpRight size={12} />
+                          </a>
+                        ) : null}
+                        {srcAnnotation ? ` ${srcAnnotation}` : null}
+                      </dd>
+                      <dt>{t("Checked", "核对日期")}</dt>
+                      <dd>{m.checked_at}</dd>
+                      <dt>{t("Board label", "榜单原名")}</dt>
+                      <dd>{m.board_label}</dd>
+                      <dt>{t("Archived snapshot", "存档快照")}</dt>
+                      <dd>
+                        <a href={m.archive_url} target="_blank" rel="noreferrer">
+                          {m.archive}
+                          <ArrowUpRight size={12} />
+                        </a>
+                      </dd>
+                      {recordNote ? (
+                        <>
+                          <dt>{t("Record note", "原始记录备注")}</dt>
+                          <dd className="original-text">{recordNote}</dd>
+                        </>
+                      ) : null}
+                    </dl>
+                  </details>
+                </section>
+              );
+            })}
+          {!rows.some((r) => r.point.id === p.id && r.mapping) && (
+            <p>
+              {t(
+                "No score matches the selected benchmark and configuration filters.",
+                "所选榜单与配置筛选没有匹配分数。",
+              )}
+            </p>
+          )}
+        </article>
+      ))}
+    </div>
+  );
+}
+function Method({
+  data,
+  zh,
+  onBack,
+}: {
+  data: SiteData;
+  zh: boolean;
+  onBack: () => void;
+}) {
+  const t = (en: string, cn: string) => (zh ? cn : en);
+  const mix = data.conventions.standardTokenMix;
+  return (
+    <section className="method-page">
+      <p className="eyebrow">{t("How to read the data", "如何理解这些数据")}</p>
+      <h1>{t("Every number has a story.", "每个数字，都有依据。")}</h1>
+      <p className="method-lead">
+        {t(
+          "Our contribution is the real price axis. Capability scores come from independent leaderboards, with their original context preserved.",
+          "本项目的核心是可信的真实单价轴。能力分数引用独立榜单，并保留原始评测语境。",
+        )}
+      </p>
+      <div className="big-formula">
+        <span>{t("Real unit price", "真实单价")}</span>
+        <strong>
+          {t(
+            "Monthly fee ÷ usable monthly tokens",
+            "订阅月费 ÷ 每月实际可用 token",
+          )}
+        </strong>
+        <small>USD / 1,000,000 tokens</small>
+      </div>
+      <div className="method-grid">
+        <article>
+          <h2>
+            01 <span>{t("A floor, not a promise", "价格下限")}</span>
+          </h2>
+          <p>
+            {t(
+              "Allowances assume saturated use. Lower usage increases your effective price. All token types count equally: input, output, cache reads, and cache writes in measured totals. We do not adjust for tokenizer differences or utilization.",
+              "额度按饱和使用估算；实际使用不足时单价更高。输入、输出、缓存读写一视同仁，实测采用工具上报 total。不进行分词器或利用率二阶修正。",
+            )}
+          </p>
+          <p>
+            {t(
+              `A month defaults to ${data.conventions.monthWeeks} weeks. Kimi has an independent monthly pool equal to five weekly pools; Droid's month is 2× its weekly allowance. Model allowances within the same plan are alternatives and must not be summed.`,
+              `默认月为 ${data.conventions.monthWeeks} 周；Kimi 独立月池等于周池的 5 倍；Droid 月额度为周额度的 2 倍。同套餐不同模型额度为替代关系，不可相加。`,
+            )}
+          </p>
+        </article>
+        <article>
+          <h2>
+            02 <span>{t("One comparison workload", "统一比较负载")}</span>
+          </h2>
+          <p>
+            {t(
+              "Dollar/credit pools priced at public rates and metered APIs are converted using the same three-part workload; for Anthropic models the input share is priced at the 5-minute cache-write rate. Measured samples that include a token breakdown are converted to list-worth at public prices and then to the channel's workload (low-cache for Google and StepFun, Anthropic for Claude); samples without a breakdown and official token tables keep raw totals and are flagged as not workload-normalized. Vendor dashboard dollars are calibrated from measured usage, not treated as public-price dollars.",
+              "按公开标价记账的美元/credits 池与按量 API，使用统一三段负载折算（Anthropic 档的普通输入份额按 5 分钟缓存写价计）。带 token 分项的实测样本先按公开标价折成美元价值，再按渠道负载档换算（Google 与 StepFun 用低缓存档、Claude 用 Anthropic 档）；缺分项的实测样本与官方绝对 token 表直接采用 raw 合计，网页标注「未折算」。厂商面板额度美元使用实测标定，不当成公开标价美元。",
+            )}
+          </p>
+          <div className="mix-values">
+            <span>
+              <b>{number(mix.cache * 100, "en", 3)}%</b>
+              {t("Cache reads", "缓存读取")}
+            </span>
+            <span>
+              <b>{number(mix.input * 100, "en", 3)}%</b>
+              {t("Fresh input", "普通输入")}
+            </span>
+            <span>
+              <b>{number(mix.output * 100, "en", 3)}%</b>
+              {t("Output", "输出")}
+            </span>
+          </div>
+          <p>
+            {t(
+              "This is a comparison convention, not a measured workload. Cache-write charges are modeled only in the Anthropic workload (input share at the 5-minute cache-write rate); other channels with write fees may still see overstated allowances.",
+              "这是比较基准，不代表实测负载。仅 Anthropic 档单列缓存写入（普通输入份额按 5 分钟缓存写价计），其余另收写入费的渠道仍可能高估可用额度。",
+            )}
+          </p>
+        </article>
+        <article>
+          <h2>
+            03 <span>{t("Keep the benchmark context", "保留评测语境")}</span>
+          </h2>
+          <p>
+            {t(
+              "Each leaderboard uses one selected snapshot; different benchmark versions are never mixed. Code Arena refers to WebDev Overall, not general coding ability. The default view is each model's highest-score configuration; every archived configuration and the reasoning-effort filter remain available. Harness, reasoning effort, service mode, and known score intervals are retained.",
+              "每张榜单使用一份选定快照，不混合不同版本的分数。Code Arena 指 WebDev Overall，不代表通用编程能力。默认取每个模型的最高分配置；全部存档配置和推理强度筛选仍可切换。保留框架、推理强度、模式与已知分数区间。",
+            )}
+          </p>
+          <p>
+            {t(
+              "Mappings do not verify a subscription’s harness or quota-measurement effort. Missing scores remain missing. Qualitative confidence is not a numerical error bar, and score intervals do not change frontier membership.",
+              "参考映射不验证订阅框架或额度实测强度。缺分不补分。定性置信度不等于数值误差条；分数区间不改变前沿成员。",
+            )}
+          </p>
+        </article>
+        <article>
+          <h2>
+            04 <span>{t("Follow the evidence", "追溯证据")}</span>
+          </h2>
+          <p>
+            {t(
+              "High: dashboard back-calculations, controlled saturation measurements, or official absolute-token/credit tables. Medium: usage logs plus quota reports, or official ratios applied to a strong baseline. Low: single reports, third-party summaries, and cross-plan assumptions.",
+              "高：面板反推、受控饱和实测、官方绝对 token/积分表。中：用量日志与额度口述、官方倍率与高等级基准。低：单一口述、第三方综述与跨套餐假设。",
+            )}
+          </p>
+          <p>
+            {t(
+              "Conflicting historical evidence is archived. The adopted decision and its rationale are exposed for every point. Original evidence text is preserved in its source language.",
+              "矛盾的历史证据完整存档。每个点展示采用值、取舍理由及来源，原始证据文字保留原语言。",
+            )}
+          </p>
+        </article>
+      </div>
+      <section className="method-sources">
+        <h2>{t("Independent leaderboards", "独立榜单来源")}</h2>
+        {Object.entries(data.boards).map(([id, b]) => (
+          <a key={id} href={b.url} target="_blank" rel="noreferrer">
+            <span>
+              {b.name}
+              <small>
+                {metricLabel(b.metric, zh ? "zh" : "en")} · {t("Snapshot", "快照")} {b.snapshot}
+              </small>
+            </span>
+            <ArrowUpRight size={18} />
+          </a>
+        ))}
+        <p>
+          {t("Currency conversion: ", "货币换算：")}1 USD ={" "}
+          {data.conventions.usdPerCny} CNY ·{" "}
+          {data.conventions.exchangeRate.date} ·{" "}
+          <a
+            href={data.conventions.exchangeRate.source}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {zh
+              ? data.conventions.exchangeRate.labelZh
+              : data.conventions.exchangeRate.labelEn}
+          </a>
+        </p>
+        <p>
+          <a
+            href={`${REPO}/blob/main/SOURCES.md`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("Full attribution & licensing", "完整署名与许可")}
+          </a>{" "}
+          ·{" "}
+          <a href="/data/adopted.csv" download>
+            {t("Download adopted data", "下载采用数据")}
+          </a>{" "}
+          ·{" "}
+          <a href="/data/benchmark-configurations.json" download>
+            {t("All configurations", "全部评测配置")}
+          </a>
+        </p>
+      </section>
+      <button className="primary" onClick={onBack}>
+        {t("Explore the data", "探索数据")}
+        <ArrowUpRight size={17} />
+      </button>
+    </section>
+  );
+}

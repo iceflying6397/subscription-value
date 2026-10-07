@@ -1,0 +1,146 @@
+name: Sync upstream website
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      changed: ${{ steps.patch.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Read and apply the upstream snapshot
+        id: snapshot
+        run: |
+          node replica/sync-upstream.mjs
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const git = args => execFileSync('git', args, { encoding: 'utf8' });
+          const snapshot = JSON.parse(readFileSync('replica/upstream.json', 'utf8'));
+          const tracked = new Set(git(['ls-files', '-z']).split('\0').filter(Boolean));
+          const changed = git(['diff', '--name-only', '-z']).length > 0 ||
+            snapshot.managedFiles.some(file => !tracked.has(file));
+          appendFileSync(process.env.GITHUB_OUTPUT, `changed=${changed}\n`);
+          JS
+      - name: Install website dependencies without install hooks
+        if: steps.snapshot.outputs.changed == 'true'
+        run: npm --prefix web ci --ignore-scripts
+      - name: Test the original website
+        if: steps.snapshot.outputs.changed == 'true'
+        run: npm --prefix web test
+      - name: Build the replica website
+        if: steps.snapshot.outputs.changed == 'true'
+        run: node replica/build.mjs
+      - name: Package only the validated upstream changes
+        id: patch
+        if: steps.snapshot.outputs.changed == 'true'
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+          import path from 'node:path';
+          const git = (args, options = {}) => execFileSync('git', args, { encoding: 'utf8', ...options });
+          const before = JSON.parse(git(['show', 'HEAD:replica/upstream.json']));
+          const after = JSON.parse(readFileSync('replica/upstream.json', 'utf8'));
+          const protectedRoots = new Set(['.git', '.github', '.agents', '.codex', 'replica']);
+          const protectedFiles = new Set(['agents.md', 'deploy_edgeone.zh.md', 'edgeone.json']);
+          const safe = file => typeof file === 'string' && file && !path.posix.isAbsolute(file) &&
+            !path.win32.isAbsolute(file) && !/[\\\0\r\n]/.test(file) &&
+            !file.split('/').some(p => !p || p === '.' || p === '..') &&
+            !protectedRoots.has(file.normalize('NFC').toLowerCase().split('/')[0]) &&
+            !protectedFiles.has(file.normalize('NFC').toLowerCase());
+          if (after.schemaVersion !== 1 || after.repository !== before.repository || after.ref !== before.ref ||
+              !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(after.commit) || !Array.isArray(after.managedFiles) ||
+              !after.managedFiles.every(safe)) throw new Error('Invalid upstream manifest');
+          const files = [...new Set([...before.managedFiles, ...after.managedFiles])];
+          if (!files.every(safe)) throw new Error('Protected or unsafe path in snapshot');
+          git(['--literal-pathspecs', 'add', '--all', '--force', '--', ...files, 'replica/upstream.json']);
+          const changed = git(['diff', '--cached', '--name-only', '-z']).split('\0').filter(Boolean);
+          if (changed.some(file => file !== 'replica/upstream.json' && !files.includes(file))) {
+            throw new Error('Unexpected staged file');
+          }
+          writeFileSync(path.join(process.env.RUNNER_TEMP, 'upstream.patch'),
+            git(['diff', '--cached', '--binary', '--full-index'], { encoding: null, maxBuffer: 256 * 1024 * 1024 }));
+          appendFileSync(process.env.GITHUB_OUTPUT, `changed=${changed.length > 0}\n`);
+          JS
+      - uses: actions/upload-artifact@v7
+        if: steps.patch.outputs.changed == 'true'
+        with:
+          name: validated-upstream-patch
+          path: ${{ runner.temp }}/upstream.patch
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: validate
+    if: needs.validate.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      # This job runs no upstream build code and receives only the tested patch.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: validated-upstream-patch
+          path: ${{ runner.temp }}/validated-upstream
+      - name: Verify and commit the validated snapshot
+        shell: bash
+        run: |
+          git apply --index "$RUNNER_TEMP/validated-upstream/upstream.patch"
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import path from 'node:path';
+          const git = args => execFileSync('git', args, { encoding: 'utf8' });
+          const before = JSON.parse(git(['show', 'HEAD:replica/upstream.json']));
+          const after = JSON.parse(git(['show', ':replica/upstream.json']));
+          const roots = new Set(['.git', '.github', '.agents', '.codex', 'replica']);
+          const fixed = new Set(['agents.md', 'deploy_edgeone.zh.md', 'edgeone.json']);
+          const safe = file => typeof file === 'string' && file && !path.posix.isAbsolute(file) &&
+            !path.win32.isAbsolute(file) && !/[\\\0\r\n]/.test(file) &&
+            !file.split('/').some(p => !p || p === '.' || p === '..') &&
+            !roots.has(file.normalize('NFC').toLowerCase().split('/')[0]) &&
+            !fixed.has(file.normalize('NFC').toLowerCase());
+          if (after.schemaVersion !== 1 || after.repository !== before.repository || after.ref !== before.ref ||
+              !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(after.commit) || !Array.isArray(after.managedFiles) ||
+              !after.managedFiles.every(safe)) throw new Error('Invalid upstream manifest');
+          const allowed = new Set([...before.managedFiles, ...after.managedFiles, 'replica/upstream.json']);
+          const changed = git(['diff', '--cached', '--name-only', '-z']).split('\0').filter(Boolean);
+          if (!changed.length || changed.some(file => !allowed.has(file) ||
+              (file !== 'replica/upstream.json' && !safe(file)))) throw new Error('Unexpected patch path');
+          git(['config', 'user.name', 'github-actions[bot]']);
+          git(['config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com']);
+          git(['status', '--short']);
+          console.log(git(['commit', '-m', `chore: sync upstream ${after.commit.slice(0, 12)}`]));
+          JS
+      - name: Push the snapshot without rewriting history
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"

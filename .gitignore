@@ -1,0 +1,18 @@
+# Local archive; never publish it (it may contain private diagnostics).
+/_backup/
+/tmp/
+/_build/
+/AGENTS.md
+__pycache__/
+*.py[cod]
+node_modules/
+.wrangler/
+.venv/
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+
+# Private local screenshots.
+/数据快记/
