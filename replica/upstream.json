@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/FeiZhuLulu/real-api-pricing.git",
   "ref": "refs/heads/main",
-  "commit": "89480751e6b13b71f5d2b1d7b67ab6bbf72a37f8",
+  "commit": "0be92b7ce3edf7690672ce5217607032a4bc7c45",
   "managedFiles": [
     ".gitignore",
     "BUILD.md",
@@ -241,6 +241,7 @@
     "data/research/claude-max5x-opus55-round1-2026-10-03.json",
     "data/research/claude-opus55-max20x-round2-2026-09-30.json",
     "data/research/claude-opus55-round1-2026-09-23.json",
+    "data/research/claude-pro-opus55-community-issue124-2026-10-18.json",
     "data/research/claude-quotas-round5-2026-09.json",
     "data/research/claude-team-opus55-round1-2026-10-06.json",
     "data/research/code-subscriptions-round1-2026-09-06.json",
