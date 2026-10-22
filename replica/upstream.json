@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/FeiZhuLulu/real-api-pricing.git",
   "ref": "refs/heads/main",
-  "commit": "087fd0961930475af3f01b6940da9648adcf88f0",
+  "commit": "7f0feb7b33314d4af2ccd9070739b91fe3d33d76",
   "managedFiles": [
     ".gitignore",
     "BUILD.md",
@@ -297,6 +297,8 @@
     "data/research/list-prices-mimo-v26-grok47-round1-2026-09-22.json",
     "data/research/list-prices-stepfun-round1-2026-09-10.json",
     "data/research/list-prices-stepfun-round2-2026-09-21.json",
+    "data/research/magpie-local-tokyo-round1-2026-10-21.json",
+    "data/research/magpie-local-tokyo-round1-2026-10-21.md",
     "data/research/methodology-adoption-round3-2026-09-07.json",
     "data/research/mimo-client-sample-round3-2026-09-23.json",
     "data/research/mimo-token-plan-panel-round2-2026-09-23.json",
