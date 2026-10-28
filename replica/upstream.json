@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/FeiZhuLulu/real-api-pricing.git",
   "ref": "refs/heads/main",
-  "commit": "75920ca2ba842beb3e7ac1eee8cfa359c0f5ddd7",
+  "commit": "63e8bee05d1a944c722e6c90935b840fc2c2e882",
   "managedFiles": [
     ".gitignore",
     "BUILD.md",
@@ -292,6 +292,7 @@
     "data/research/goat-opencode-catalogs-round4-2026-10-20.json",
     "data/research/goat-ornith-15-122b-round1-2026-10-21.json",
     "data/research/goat-shared-pool-round1-2026-10-27.json",
+    "data/research/goat-shared-pool-round2-2026-10-28.json",
     "data/research/gpt61-terra-and-promos-x-2026-10-27.json",
     "data/research/kimi-adoption-round6-2026-09-08.json",
     "data/research/kimi-allegretto-quota-round2-2026-10-27.json",
