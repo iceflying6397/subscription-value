@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/FeiZhuLulu/real-api-pricing.git",
   "ref": "refs/heads/main",
-  "commit": "63e8bee05d1a944c722e6c90935b840fc2c2e882",
+  "commit": "e0037cfc7762410d8035fa1dbb3f03c7e6252442",
   "managedFiles": [
     ".gitignore",
     "BUILD.md",
@@ -328,6 +328,7 @@
     "data/research/opencode-go-minimax-m31-flash-round1-2026-10-23.json",
     "data/research/opencode-go-round5-2026-09-06.json",
     "data/research/opencode-go-step5-preview-round1-2026-10-16.json",
+    "data/research/opencode-go-teams-round1-2026-10-30.json",
     "data/research/pending-decisions-2026-09-05.md",
     "data/research/quota-round6-2026-09-06.json",
     "data/research/quotas-web-2026-09.json",
