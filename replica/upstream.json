@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/FeiZhuLulu/real-api-pricing.git",
   "ref": "refs/heads/main",
-  "commit": "7f6aa97c1b73beda4bc57a66e286346e05f7a92f",
+  "commit": "514f39c4924b945ea1621bd565d985c48065dacc",
   "managedFiles": [
     ".gitignore",
     "BUILD.md",
@@ -258,6 +258,7 @@
     "data/research/cursor-user-round5-2026-09-05.json",
     "data/research/cursor-user-screenshot-round7-2026-09-06.json",
     "data/research/devin-opus55-round1-2026-09-23.json",
+    "data/research/devin-pro-opus55-round1-2026-10-30.json",
     "data/research/devin-swe2-round1-2026-09-12.json",
     "data/research/devin-usage-round1-2026-09-11.json",
     "data/research/devin-usage-round2-2026-09-11.json",
