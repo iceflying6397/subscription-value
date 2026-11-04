@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/FeiZhuLulu/real-api-pricing.git",
   "ref": "refs/heads/main",
-  "commit": "ed33da5febba8c4e0b3315d02b881c64765bbaed",
+  "commit": "ed848df33e273806e9f15ab9d370f83f4a78ec07",
   "managedFiles": [
     ".gitignore",
     "BUILD.md",
@@ -288,6 +288,7 @@
     "data/research/glm-community-round3-grok-2026-09-09.json",
     "data/research/goat-deepseek-glm-boost-round1-2026-10-31.json",
     "data/research/goat-kimi-k31-pro-round1-2026-10-24.json",
+    "data/research/goat-ling31-flash-1019-round1-2026-11-04.json",
     "data/research/goat-ling31-flash-round1-2026-10-15.json",
     "data/research/goat-ling31-flash-round2-2026-10-16.json",
     "data/research/goat-minimax-m31-flash-round1-2026-10-20.json",
