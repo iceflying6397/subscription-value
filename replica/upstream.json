@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/FeiZhuLulu/real-api-pricing.git",
   "ref": "refs/heads/main",
-  "commit": "ed848df33e273806e9f15ab9d370f83f4a78ec07",
+  "commit": "1392833f2f7b64de87f8954516bb1ba7a6e49562",
   "managedFiles": [
     ".gitignore",
     "BUILD.md",
@@ -330,6 +330,7 @@
     "data/research/opencode-go-deepseek-round8-2026-10-31.json",
     "data/research/opencode-go-gemini4-argon-round1-2026-10-15.json",
     "data/research/opencode-go-gemini4-argon-round2-2026-10-25.json",
+    "data/research/opencode-go-hy4-round1-2026-11-05.json",
     "data/research/opencode-go-kimi-k31-pro-round1-2026-10-24.json",
     "data/research/opencode-go-minimax-m31-flash-round1-2026-10-23.json",
     "data/research/opencode-go-round5-2026-09-06.json",
