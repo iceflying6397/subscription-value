@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/FeiZhuLulu/real-api-pricing.git",
   "ref": "refs/heads/main",
-  "commit": "9c8ffc039781023e41d5e3071778ee61b4ff3618",
+  "commit": "97e194fca8a8f2ec542bb7357b7cee8521f83c06",
   "managedFiles": [
     ".gitignore",
     "BUILD.md",
@@ -353,6 +353,9 @@
     "data/research/magpie-single-model-weekly-round3-2026-11-16-aligned-evidence.csv",
     "data/research/magpie-single-model-weekly-round3-2026-11-16.json",
     "data/research/magpie-single-model-weekly-round3-2026-11-16.md",
+    "data/research/magpie-single-model-weekly-round4-2026-11-23-aligned-evidence.csv",
+    "data/research/magpie-single-model-weekly-round4-2026-11-23.json",
+    "data/research/magpie-single-model-weekly-round4-2026-11-23.md",
     "data/research/mamaruo-qwen-tokenplan-lite-deepseek-v41-flash-1017-2026-11-19.json",
     "data/research/mamaruo-qwen-tokenplan-lite-qwen4-max-preview-2026-11-16.json",
     "data/research/methodology-adoption-round3-2026-09-07.json",
