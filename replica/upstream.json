@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/FeiZhuLulu/real-api-pricing.git",
   "ref": "refs/heads/main",
-  "commit": "97e194fca8a8f2ec542bb7357b7cee8521f83c06",
+  "commit": "32217301e3cada743530604de4c58a9c0f200489",
   "managedFiles": [
     ".gitignore",
     "BUILD.md",
@@ -345,6 +345,8 @@
     "data/research/list-prices-stepfun-round2-2026-09-21.json",
     "data/research/local-samples-round1-2026-11-09.json",
     "data/research/local-samples-round2-2026-11-20.json",
+    "data/research/local-samples-round3-2026-11-21.json",
+    "data/research/local-samples-round4-2026-11-23.json",
     "data/research/magpie-local-tokyo-round1-2026-10-21.json",
     "data/research/magpie-local-tokyo-round1-2026-10-21.md",
     "data/research/magpie-single-model-weekly-round2-2026-11-09-aligned-evidence.csv",
